@@ -302,6 +302,7 @@ function App(){
   const [scatterPair,setScatterPair]=useState(0);
   const [news,setNews]=useState([]);
   const [dataSource,setDataSource]=useState('fallback'); // 'live'|'partial'|'fallback'
+  const [fetchStatus,setFetchStatus]=useState({});
   const timerRef=useRef(null);
 
   const fetchAll=useCallback(async()=>{
@@ -322,6 +323,16 @@ function App(){
       const goldData =goldRes.status==='fulfilled'?goldRes.value:null;
       const brentData=brentRes.status==='fulfilled'?brentRes.value:null;
       const sp500Data=sp500Res.status==='fulfilled'?sp500Res.value:null;
+      // Track per-symbol fetch result: 'ok'|'noHistory'|'fail'
+      const fs={
+        'USD/KRW': krwData?.history?.length  ? 'ok' : krwData  ? 'noHistory' : 'fail',
+        'WTI':     wtiData?.history?.length   ? 'ok' : wtiData   ? 'noHistory' : 'fail',
+        'KOSPI':   kospiData?.history?.length ? 'ok' : kospiData ? 'noHistory' : 'fail',
+        'Gold':    goldData?.history?.length  ? 'ok' : goldData  ? 'noHistory' : 'fail',
+        'Brent':   brentData?.history?.length ? 'ok' : brentData ? 'noHistory' : 'fail',
+        'S&P500':  sp500Data?.history?.length ? 'ok' : sp500Data ? 'noHistory' : 'fail',
+      };
+      setFetchStatus(fs);
 
       if(wtiData?.history?.length && kospiData?.history?.length){
         const dateMap=new Map();
@@ -656,13 +667,28 @@ function App(){
 
       {/* KOSPI Prediction Card */}
       {dataSource!=='live'&&(
-        <div style={{marginBottom:12,padding:'10px 14px',background:'#111827',border:'1px solid #1e293b',
-          borderRadius:8,fontSize:11,color:C.muted,display:'flex',alignItems:'center',gap:8}}>
-          <span style={{color:'#eab308'}}>⚠</span>
-          <span>라이브 히스토리 데이터 수신 대기 중 — 예측 모델 및 WTI 신호는 라이브 데이터 확보 후 표시됩니다</span>
-          <span style={{marginLeft:'auto',color:dataSource==='partial'?'#eab308':C.muted}}>
-            {dataSource==='partial'?'Partial':'Fallback'}
-          </span>
+        <div style={{marginBottom:12,padding:'10px 14px',background:'#111827',border:'1px solid #1e293b',borderRadius:8}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+            <span style={{color:'#eab308',fontSize:12}}>⚠</span>
+            <span style={{fontSize:11,color:C.muted}}>
+              라이브 히스토리 미수신 — 예측 모델·WTI 신호 대기 중
+            </span>
+            <span style={{marginLeft:'auto',fontSize:10,fontWeight:600,
+              color:dataSource==='partial'?'#eab308':C.muted}}>
+              {dataSource==='partial'?'Partial':'Fallback'}
+            </span>
+          </div>
+          {Object.keys(fetchStatus).length>0&&(
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {Object.entries(fetchStatus).map(([sym,st])=>(
+                <span key={sym} style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:4,
+                  background: st==='ok'?'#10b98120':st==='noHistory'?'#eab30820':'#ef444420',
+                  color:       st==='ok'?C.emerald  :st==='noHistory'?'#eab308'  :C.dn}}>
+                  {st==='ok'?'✓':st==='noHistory'?'~':'✗'} {sym}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {prediction && (
