@@ -17,53 +17,60 @@ body{background:#0b0f19;color:#e2e8f0;font-family:'JetBrains Mono',monospace;lin
 .card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:20px}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-table{width:100%;border-collapse:collapse;font-size:12px}
-th,td{padding:8px 10px;text-align:right;border-bottom:1px solid #1e293b}
-th{color:#94a3b8;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px}
+.grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid #1e293b}
+th{color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.5px}
 td:first-child,th:first-child{text-align:left}
 .up{color:#10b981}.dn{color:#ef4444}
 button{font-family:inherit;cursor:pointer;border:none;border-radius:8px;font-size:12px;font-weight:600;padding:6px 14px;transition:opacity .15s}
 button:hover{opacity:0.85}
-@media(max-width:768px){.grid-3,.grid-2{grid-template-columns:1fr}.card{padding:14px}#root{padding:12px 8px 32px}}
+@media(max-width:900px){.grid-5{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:768px){.grid-3,.grid-2,.grid-5{grid-template-columns:1fr}.card{padding:14px}#root{padding:12px 8px 32px}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback,useMemo,useRef}=React;
-const {AreaChart,Area,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,ScatterChart,Scatter,BarChart,Bar,Cell,ReferenceLine,Legend}=Recharts;
+const {AreaChart,Area,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,ScatterChart,Scatter,BarChart,Bar,Cell,ReferenceLine}=Recharts;
 
 // ── Colors ──
-const C={amber:'#f59e0b',emerald:'#10b981',blue:'#3b82f6',up:'#10b981',dn:'#ef4444',bg:'#0b0f19',card:'#111827',border:'#1e293b',muted:'#94a3b8',text:'#e2e8f0'};
+const C={
+  amber:'#f59e0b',emerald:'#10b981',blue:'#3b82f6',
+  gold:'#facc15',brent:'#c084fc',
+  up:'#10b981',dn:'#ef4444',bg:'#0b0f19',card:'#111827',
+  border:'#1e293b',muted:'#94a3b8',text:'#e2e8f0'
+};
 
-// ── Fallback Data ──
+// ── Fallback Data (2026-02-27 ~ 03-13, 이란 분쟁 기간) ──
 const FALLBACK_DATES=['02-27','02-28','03-03','03-04','03-05','03-06','03-07','03-10','03-11','03-12','03-13'];
-const FALLBACK_KRW=[1432.3,1443.0,1483.8,1472.5,1458.2,1465.0,1470.3,1478.5,1466.5,1480.1,1501.5];
-const FALLBACK_WTI=[68.8,72.5,79.8,76.2,73.1,74.5,80.2,85.3,87.2,95.7,98.7];
+const FALLBACK_KRW  =[1432.3,1443.0,1483.8,1472.5,1458.2,1465.0,1470.3,1478.5,1466.5,1480.1,1501.5];
+const FALLBACK_WTI  =[68.8,72.5,79.8,76.2,73.1,74.5,80.2,85.3,87.2,95.7,98.7];
 const FALLBACK_KOSPI=[6180,5950,5340,5520,5680,5630,5420,5059.5,5609,5574.5,5487.2];
+const FALLBACK_GOLD =[2802,2848,2955,2922,2898,2932,2988,3058,3082,3128,3187];
+const FALLBACK_BRENT=[72.3,75.8,84.5,80.8,77.5,79.2,85.8,90.8,92.5,101.2,104.8];
 
 function buildFallback(){
-  return FALLBACK_DATES.map((d,i)=>({date:'2026-'+d,krw:FALLBACK_KRW[i],wti:FALLBACK_WTI[i],kospi:FALLBACK_KOSPI[i]}));
+  return FALLBACK_DATES.map((d,i)=>({
+    date:'2026-'+d,
+    krw:FALLBACK_KRW[i],wti:FALLBACK_WTI[i],kospi:FALLBACK_KOSPI[i],
+    gold:FALLBACK_GOLD[i],brent:FALLBACK_BRENT[i]
+  }));
 }
 
 // ── Fetch helpers ──
 async function fetchKRW(){
-  try{
-    const r=await fetch('https://open.er-api.com/v6/latest/USD');
-    const j=await r.json();
-    if(j.rates?.KRW)return j.rates.KRW;
-  }catch{}
-  try{
-    const r=await fetch('https://api.exchangerate-api.com/v4/latest/USD');
-    const j=await r.json();
-    if(j.rates?.KRW)return j.rates.KRW;
-  }catch{}
+  try{const r=await fetch('https://open.er-api.com/v6/latest/USD');const j=await r.json();if(j.rates?.KRW)return j.rates.KRW;}catch{}
+  try{const r=await fetch('https://api.exchangerate-api.com/v4/latest/USD');const j=await r.json();if(j.rates?.KRW)return j.rates.KRW;}catch{}
   return null;
 }
 
 async function fetchYahoo(symbol){
   try{
-    const url='https://api.allorigins.win/raw?url='+encodeURIComponent('https://query1.finance.yahoo.com/v8/finance/chart/'+symbol+'?range=1mo&interval=1d');
+    const url='https://api.allorigins.win/raw?url='+encodeURIComponent(
+      'https://query1.finance.yahoo.com/v8/finance/chart/'+symbol+'?range=1mo&interval=1d'
+    );
     const r=await fetch(url);
     const j=await r.json();
     const res=j.chart.result[0];
@@ -71,8 +78,7 @@ async function fetchYahoo(symbol){
     const ts=res.timestamp||[];
     const closes=res.indicators.quote[0].close||[];
     const history=ts.map((t,i)=>{
-      const d=new Date(t*1000);
-      const ds=d.toISOString().slice(0,10);
+      const ds=new Date(t*1000).toISOString().slice(0,10);
       return {date:ds,close:closes[i]};
     }).filter(x=>x.close!=null);
     return {current,history};
@@ -92,10 +98,7 @@ function pearson(x,y){
   const mx=x.slice(0,n).reduce((a,b)=>a+b,0)/n;
   const my=y.slice(0,n).reduce((a,b)=>a+b,0)/n;
   let num=0,dx=0,dy=0;
-  for(let i=0;i<n;i++){
-    const xi=x[i]-mx,yi=y[i]-my;
-    num+=xi*yi;dx+=xi*xi;dy+=yi*yi;
-  }
+  for(let i=0;i<n;i++){const xi=x[i]-mx,yi=y[i]-my;num+=xi*yi;dx+=xi*xi;dy+=yi*yi;}
   const den=Math.sqrt(dx*dy);
   return den===0?0:num/den;
 }
@@ -130,12 +133,12 @@ function fmtNum(v,d=1){return v==null?'—':v.toFixed(d)}
 function fmtPct(v){return v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%'}
 
 // ── Components ──
-function MetricCard({title,value,change,color,prefix='',suffix=''}){
+function MetricCard({title,value,change,color,prefix='',suffix='',decimals=1}){
   const isUp=change>=0;
   return(
-    <div className="card" style={{borderTop:`3px solid ${color}`,position:'relative'}}>
+    <div className="card" style={{borderTop:`3px solid ${color}`}}>
       <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>{title}</div>
-      <div style={{fontSize:24,fontWeight:800,color:C.text}}>{prefix}{fmtNum(value,title==='KOSPI'?1:1)}{suffix}</div>
+      <div style={{fontSize:22,fontWeight:800,color:C.text}}>{prefix}{fmtNum(value,decimals)}{suffix}</div>
       <div style={{fontSize:13,fontWeight:600,color:isUp?C.up:C.dn,marginTop:4}}>{fmtPct(change)}</div>
     </div>
   );
@@ -147,16 +150,19 @@ function CorrBadge({labelA,labelB,value}){
   return(
     <div className="card" style={{textAlign:'center'}}>
       <div style={{fontSize:11,color:C.muted,marginBottom:6}}>{labelA} ↔ {labelB}</div>
-      <div style={{fontSize:28,fontWeight:800,color:col}}>{value.toFixed(3)}</div>
+      <div style={{fontSize:26,fontWeight:800,color:col}}>{value.toFixed(3)}</div>
       <div style={{fontSize:11,fontWeight:600,color:col,marginTop:4}}>{lab}</div>
     </div>
   );
 }
 
 const SCATTER_PAIRS=[
-  {key:'krw_kospi',labelA:'USD/KRW',labelB:'KOSPI',colorA:C.amber,colorB:C.blue},
-  {key:'wti_kospi',labelA:'WTI',labelB:'KOSPI',colorA:C.emerald,colorB:C.blue},
-  {key:'krw_wti',labelA:'USD/KRW',labelB:'WTI',colorA:C.amber,colorB:C.emerald},
+  {key:'krw_kospi', labelA:'USD/KRW', labelB:'KOSPI',  colorA:C.amber,   colorB:C.blue},
+  {key:'wti_kospi', labelA:'WTI',     labelB:'KOSPI',  colorA:C.emerald, colorB:C.blue},
+  {key:'gold_kospi',labelA:'Gold',    labelB:'KOSPI',  colorA:C.gold,    colorB:C.blue},
+  {key:'brent_wti', labelA:'Brent',   labelB:'WTI',    colorA:C.brent,   colorB:C.emerald},
+  {key:'gold_wti',  labelA:'Gold',    labelB:'WTI',    colorA:C.gold,    colorB:C.emerald},
+  {key:'krw_wti',   labelA:'USD/KRW', labelB:'WTI',    colorA:C.amber,   colorB:C.emerald},
 ];
 
 function App(){
@@ -170,38 +176,60 @@ function App(){
   const fetchAll=useCallback(async()=>{
     setStatus('Fetching...');
     try{
-      const [krwRate,wtiRes,kospiRes]=await Promise.allSettled([
-        fetchKRW(),fetchYahoo('CL%3DF'),fetchYahoo('%5EKS11')
+      const [krwRate,wtiRes,kospiRes,goldRes,brentRes]=await Promise.allSettled([
+        fetchKRW(),
+        fetchYahoo('CL%3DF'),
+        fetchYahoo('%5EKS11'),
+        fetchYahoo('GC%3DF'),
+        fetchYahoo('BZ%3DF'),
       ]);
-      const krwVal=krwRate.status==='fulfilled'?krwRate.value:null;
-      const wtiData=wtiRes.status==='fulfilled'?wtiRes.value:null;
+      const krwVal  =krwRate.status==='fulfilled'?krwRate.value:null;
+      const wtiData =wtiRes.status==='fulfilled'?wtiRes.value:null;
       const kospiData=kospiRes.status==='fulfilled'?kospiRes.value:null;
+      const goldData =goldRes.status==='fulfilled'?goldRes.value:null;
+      const brentData=brentRes.status==='fulfilled'?brentRes.value:null;
 
       if(wtiData?.history?.length && kospiData?.history?.length){
         const dateMap=new Map();
-        for(const h of wtiData.history) dateMap.set(h.date,{wti:h.close});
+        for(const h of wtiData.history)  dateMap.set(h.date,{wti:h.close});
         for(const h of kospiData.history){
           const e=dateMap.get(h.date);
           if(e) e.kospi=h.close; else dateMap.set(h.date,{kospi:h.close});
         }
+        if(goldData?.history)  for(const h of goldData.history) {const e=dateMap.get(h.date);if(e)e.gold=h.close;}
+        if(brentData?.history) for(const h of brentData.history){const e=dateMap.get(h.date);if(e)e.brent=h.close;}
+
+        const fallGold =FALLBACK_GOLD[FALLBACK_GOLD.length-1];
+        const fallBrent=FALLBACK_BRENT[FALLBACK_BRENT.length-1];
         const merged=[...dateMap.entries()]
           .filter(([,v])=>v.wti!=null&&v.kospi!=null)
           .sort(([a],[b])=>a.localeCompare(b))
-          .map(([date,v])=>({date,krw:krwVal||FALLBACK_KRW[FALLBACK_KRW.length-1],wti:v.wti,kospi:v.kospi}));
+          .map(([date,v])=>({
+            date,
+            krw:krwVal||FALLBACK_KRW[FALLBACK_KRW.length-1],
+            wti:v.wti, kospi:v.kospi,
+            gold:v.gold||fallGold,
+            brent:v.brent||fallBrent,
+          }));
         if(merged.length>=3){
-          if(krwVal) merged[merged.length-1].krw=krwVal;
+          const last=merged[merged.length-1];
+          if(krwVal)           last.krw=krwVal;
+          if(goldData?.current)  last.gold=goldData.current;
+          if(brentData?.current) last.brent=brentData.current;
           setData(merged);
           setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
           setCountdown(300);
           return;
         }
       }
-      // partial success: update latest values on fallback
+      // partial fallback
       const fb=buildFallback();
       const last=fb[fb.length-1];
-      if(krwVal)last.krw=krwVal;
-      if(wtiData?.current)last.wti=wtiData.current;
+      if(krwVal)            last.krw=krwVal;
+      if(wtiData?.current)  last.wti=wtiData.current;
       if(kospiData?.current)last.kospi=kospiData.current;
+      if(goldData?.current) last.gold=goldData.current;
+      if(brentData?.current)last.brent=brentData.current;
       setData(fb);
       setStatus('Partial data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
       setCountdown(300);
@@ -212,7 +240,7 @@ function App(){
     }
   },[]);
 
-  useEffect(()=>{fetchAll()},[fetchAll]);
+  useEffect(()=>{fetchAll();},[fetchAll]);
 
   useEffect(()=>{
     timerRef.current=setInterval(()=>{
@@ -227,117 +255,157 @@ function App(){
   },[paused,fetchAll]);
 
   // ── Derived ──
-  const krwArr=data.map(d=>d.krw);
-  const wtiArr=data.map(d=>d.wti);
+  const krwArr  =data.map(d=>d.krw);
+  const wtiArr  =data.map(d=>d.wti);
   const kospiArr=data.map(d=>d.kospi);
-  const dates=data.map(d=>d.date);
+  const goldArr =data.map(d=>d.gold);
+  const brentArr=data.map(d=>d.brent);
+  const dates   =data.map(d=>d.date);
 
-  const retKrw=calcReturns(krwArr);
-  const retWti=calcReturns(wtiArr);
+  const retKrw  =calcReturns(krwArr);
+  const retWti  =calcReturns(wtiArr);
   const retKospi=calcReturns(kospiArr);
+  const retGold =calcReturns(goldArr);
+  const retBrent=calcReturns(brentArr);
 
-  const corrKK=pearson(retKrw,retKospi);
-  const corrWK=pearson(retWti,retKospi);
-  const corrKW=pearson(retKrw,retWti);
+  const corrKK=pearson(retKrw,  retKospi);  // 환율↔KOSPI
+  const corrWK=pearson(retWti,  retKospi);  // WTI↔KOSPI
+  const corrGK=pearson(retGold, retKospi);  // Gold↔KOSPI
+  const corrKW=pearson(retKrw,  retWti);    // 환율↔WTI
+  const corrGW=pearson(retGold, retWti);    // Gold↔WTI
+  const corrBW=pearson(retBrent,retWti);    // Brent↔WTI
 
-  const normKrw=zScore(krwArr);
-  const normWti=zScore(wtiArr);
-  const normKospi=zScore(kospiArr);
-  const normData=dates.map((d,i)=>({date:d.slice(5),krw:normKrw[i],wti:normWti[i],kospi:normKospi[i]}));
+  const normData=dates.map((d,i)=>({
+    date:d.slice(5),
+    krw:zScore(krwArr)[i],
+    wti:zScore(wtiArr)[i],
+    kospi:zScore(kospiArr)[i],
+    gold:zScore(goldArr)[i],
+    brent:zScore(brentArr)[i],
+  }));
 
   const latest=data[data.length-1];
-  const prev=data.length>=2?data[data.length-2]:data[0];
-  const chgKrw=(latest.krw-prev.krw)/prev.krw*100;
-  const chgWti=(latest.wti-prev.wti)/prev.wti*100;
+  const prev  =data.length>=2?data[data.length-2]:data[0];
+  const chgKrw  =(latest.krw  -prev.krw  )/prev.krw  *100;
+  const chgWti  =(latest.wti  -prev.wti  )/prev.wti  *100;
   const chgKospi=(latest.kospi-prev.kospi)/prev.kospi*100;
+  const chgGold =(latest.gold -prev.gold )/prev.gold *100;
+  const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
 
-  // scatter data
   const scatterData=useMemo(()=>{
-    const pairs=SCATTER_PAIRS[scatterPair];
-    const retA=pairs.key.startsWith('krw')?retKrw:retWti;
-    const retB=pairs.key.endsWith('kospi')?retKospi:retWti;
+    const sp=SCATTER_PAIRS[scatterPair];
+    const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent};
+    const [ka,kb]=sp.key.split('_');
+    const retA=map[ka], retB=map[kb];
     return retA.map((v,i)=>({x:v,y:retB[i]||0})).filter(d=>!isNaN(d.x)&&!isNaN(d.y));
-  },[scatterPair,retKrw,retWti,retKospi]);
+  },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent]);
 
-  // bar data
   const barData=[
-    {name:'KRW↔KOSPI',value:corrKK,color:corrColor(corrKK)},
-    {name:'WTI↔KOSPI',value:corrWK,color:corrColor(corrWK)},
-    {name:'KRW↔WTI',value:corrKW,color:corrColor(corrKW)},
+    {name:'KRW↔KOSPI', value:corrKK, color:corrColor(corrKK)},
+    {name:'WTI↔KOSPI', value:corrWK, color:corrColor(corrWK)},
+    {name:'Gold↔KOSPI',value:corrGK, color:corrColor(corrGK)},
+    {name:'KRW↔WTI',   value:corrKW, color:corrColor(corrKW)},
+    {name:'Gold↔WTI',  value:corrGW, color:corrColor(corrGW)},
+    {name:'Brent↔WTI', value:corrBW, color:corrColor(corrBW)},
   ];
 
-  // table data with daily changes
   const tableData=data.map((d,i)=>{
     const p=i>0?data[i-1]:null;
     return{
       date:d.date,
-      krw:d.krw, chgKrw:p?(d.krw-p.krw)/p.krw*100:null,
-      wti:d.wti, chgWti:p?(d.wti-p.wti)/p.wti*100:null,
-      kospi:d.kospi, chgKospi:p?(d.kospi-p.kospi)/p.kospi*100:null,
+      krw:d.krw,   chgKrw:  p?(d.krw  -p.krw  )/p.krw  *100:null,
+      wti:d.wti,   chgWti:  p?(d.wti  -p.wti  )/p.wti  *100:null,
+      brent:d.brent,chgBrent:p?(d.brent-p.brent)/p.brent*100:null,
+      gold:d.gold, chgGold: p?(d.gold -p.gold )/p.gold *100:null,
+      kospi:d.kospi,chgKospi:p?(d.kospi-p.kospi)/p.kospi*100:null,
     };
   });
 
   const ttStyle={backgroundColor:'#1e293b',border:'1px solid #334155',borderRadius:8,fontSize:11,fontFamily:'JetBrains Mono',color:C.text};
   const mins=Math.floor(countdown/60);
   const secs=countdown%60;
-
   const sp=SCATTER_PAIRS[scatterPair];
 
-  // period change from first to last
-  const periodChgKrw=((latest.krw-data[0].krw)/data[0].krw*100);
-  const periodChgWti=((latest.wti-data[0].wti)/data[0].wti*100);
-  const periodChgKospi=((latest.kospi-data[0].kospi)/data[0].kospi*100);
+  const first=data[0];
+  const pChgKrw  =((latest.krw  -first.krw  )/first.krw  *100);
+  const pChgWti  =((latest.wti  -first.wti  )/first.wti  *100);
+  const pChgKospi=((latest.kospi-first.kospi)/first.kospi*100);
+  const pChgGold =((latest.gold -first.gold )/first.gold *100);
+  const pChgBrent=((latest.brent-first.brent)/first.brent*100);
+
+  const nameMap={krw:'USD/KRW',wti:'WTI',kospi:'KOSPI',gold:'Gold',brent:'Brent'};
 
   return(
     <div>
       {/* Header */}
       <div style={{marginBottom:24}}>
         <div style={{fontSize:11,color:C.muted,fontWeight:600,letterSpacing:1,textTransform:'uppercase',marginBottom:4}}>Market Correlation Dashboard</div>
-        <div style={{fontSize:28,fontWeight:800,color:C.text,marginBottom:8}}>환율 · 유가 · KOSPI</div>
+        <div style={{fontSize:26,fontWeight:800,color:C.text,marginBottom:8}}>이란 분쟁 · 글로벌 시장 영향 분석</div>
         <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
           <span style={{fontSize:12,color:C.muted}}>{status}</span>
           <span style={{fontSize:12,color:C.amber,fontWeight:600}}>{String(mins).padStart(2,'0')}:{String(secs).padStart(2,'0')}</span>
           <button onClick={()=>setPaused(p=>!p)} style={{background:paused?C.amber:'#1e293b',color:paused?'#000':C.text}}>
             {paused?'Resume':'Pause'}
           </button>
-          <button onClick={()=>{fetchAll();setCountdown(300)}} style={{background:'#1e293b',color:C.text}}>
+          <button onClick={()=>{fetchAll();setCountdown(300);}} style={{background:'#1e293b',color:C.text}}>
             Refresh
           </button>
         </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid-3" style={{marginBottom:12}}>
-        <MetricCard title="USD/KRW" value={latest.krw} change={chgKrw} color={C.amber} prefix="₩" />
-        <MetricCard title="WTI Crude" value={latest.wti} change={chgWti} color={C.emerald} prefix="$" />
-        <MetricCard title="KOSPI" value={latest.kospi} change={chgKospi} color={C.blue} />
+      {/* 5 Metric Cards */}
+      <div className="grid-5" style={{marginBottom:12}}>
+        <MetricCard title="USD/KRW"    value={latest.krw}   change={chgKrw}   color={C.amber}   prefix="₩" decimals={1} />
+        <MetricCard title="WTI Crude"  value={latest.wti}   change={chgWti}   color={C.emerald} prefix="$" decimals={2} />
+        <MetricCard title="Brent Crude"value={latest.brent} change={chgBrent} color={C.brent}   prefix="$" decimals={2} />
+        <MetricCard title="Gold"       value={latest.gold}  change={chgGold}  color={C.gold}    prefix="$" decimals={0} />
+        <MetricCard title="KOSPI"      value={latest.kospi} change={chgKospi} color={C.blue}    decimals={1} />
       </div>
 
       {/* Iran Context Banner */}
-      <div className="card" style={{borderLeft:`3px solid ${C.dn}`,borderTop:'none',marginBottom:12,padding:'14px 16px'}}>
-        <div style={{fontSize:13,fontWeight:600,color:C.dn}}>
-          &#9888; 이란 분쟁 영향 — 2/28 이후 WTI {periodChgWti>=0?'+':''}{periodChgWti.toFixed(1)}% 급등, 원/달러 {periodChgKrw>=0?'+':''}{periodChgKrw.toFixed(1)}% 절하, KOSPI {periodChgKospi.toFixed(1)}% 하락
+      <div className="card" style={{borderLeft:`3px solid ${C.dn}`,borderTop:'none',marginBottom:12,padding:'12px 16px'}}>
+        <div style={{fontSize:12,fontWeight:700,color:C.dn,marginBottom:8}}>⚠ 이란 분쟁 영향 — 기간 누적 변화 ({first.date.slice(5)} → {latest.date.slice(5)})</div>
+        <div style={{display:'flex',gap:24,flexWrap:'wrap',fontSize:12,fontWeight:600}}>
+          <span style={{color:C.emerald}}>WTI {pChgWti>=0?'+':''}{pChgWti.toFixed(1)}%</span>
+          <span style={{color:C.brent}}>Brent {pChgBrent>=0?'+':''}{pChgBrent.toFixed(1)}%</span>
+          <span style={{color:C.gold}}>Gold {pChgGold>=0?'+':''}{pChgGold.toFixed(1)}%</span>
+          <span style={{color:C.amber}}>USD/KRW {pChgKrw>=0?'+':''}{pChgKrw.toFixed(1)}%</span>
+          <span style={{color:C.blue}}>KOSPI {pChgKospi>=0?'+':''}{pChgKospi.toFixed(1)}%</span>
         </div>
+      </div>
+
+      {/* Correlation Badges — 2 rows of 3 */}
+      <div className="grid-3" style={{marginBottom:8}}>
+        <CorrBadge labelA="환율"  labelB="KOSPI" value={corrKK} />
+        <CorrBadge labelA="WTI"  labelB="KOSPI" value={corrWK} />
+        <CorrBadge labelA="Gold" labelB="KOSPI" value={corrGK} />
+      </div>
+      <div className="grid-3" style={{marginBottom:12}}>
+        <CorrBadge labelA="환율"  labelB="WTI"  value={corrKW} />
+        <CorrBadge labelA="Gold" labelB="WTI"  value={corrGW} />
+        <CorrBadge labelA="Brent" labelB="WTI" value={corrBW} />
       </div>
 
       {/* Normalized Returns Chart */}
       <div className="card" style={{marginBottom:12}}>
         <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Z-Score Normalized Trend</div>
-        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>각 지표를 표준편차 단위로 정규화하여 방향성 비교</div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>각 지표를 표준편차(σ) 단위로 정규화 — 스케일 무관하게 방향성 비교</div>
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={normData} margin={{top:5,right:10,left:0,bottom:0}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
             <XAxis dataKey="date" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} />
             <YAxis tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} tickFormatter={v=>v.toFixed(1)+'σ'} />
             <ReferenceLine y={0} stroke={C.muted} strokeDasharray="4 4" />
-            <Tooltip contentStyle={ttStyle} formatter={(v,n)=>[v.toFixed(2)+'σ',n==='krw'?'USD/KRW':n==='wti'?'WTI':'KOSPI']} />
-            <Area type="monotone" dataKey="krw" stroke={C.amber} fill={C.amber} fillOpacity={0.08} strokeWidth={2} name="krw" dot={false} />
-            <Area type="monotone" dataKey="wti" stroke={C.emerald} fill={C.emerald} fillOpacity={0.08} strokeWidth={2} name="wti" dot={false} />
-            <Area type="monotone" dataKey="kospi" stroke={C.blue} fill={C.blue} fillOpacity={0.08} strokeWidth={2} name="kospi" dot={false} />
+            <Tooltip contentStyle={ttStyle} formatter={(v,n)=>[v.toFixed(2)+'σ', nameMap[n]||n]} />
+            <Area type="monotone" dataKey="krw"   stroke={C.amber}   fill={C.amber}   fillOpacity={0.06} strokeWidth={2} name="krw"   dot={false} />
+            <Area type="monotone" dataKey="wti"   stroke={C.emerald} fill={C.emerald} fillOpacity={0.06} strokeWidth={2} name="wti"   dot={false} />
+            <Area type="monotone" dataKey="brent" stroke={C.brent}   fill={C.brent}   fillOpacity={0.06} strokeWidth={2} name="brent" dot={false} />
+            <Area type="monotone" dataKey="gold"  stroke={C.gold}    fill={C.gold}    fillOpacity={0.06} strokeWidth={2} name="gold"  dot={false} />
+            <Area type="monotone" dataKey="kospi" stroke={C.blue}    fill={C.blue}    fillOpacity={0.06} strokeWidth={2} name="kospi" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
-        <div style={{display:'flex',justifyContent:'center',gap:20,marginTop:8}}>
-          {[['USD/KRW',C.amber],['WTI',C.emerald],['KOSPI',C.blue]].map(([l,c])=>(
+        <div style={{display:'flex',justifyContent:'center',gap:20,marginTop:10,flexWrap:'wrap'}}>
+          {[['USD/KRW',C.amber],['WTI',C.emerald],['Brent',C.brent],['Gold',C.gold],['KOSPI',C.blue]].map(([l,c])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:6}}>
               <div style={{width:10,height:10,borderRadius:5,background:c}} />
               <span style={{fontSize:11,color:C.muted}}>{l}</span>
@@ -346,18 +414,25 @@ function App(){
         </div>
       </div>
 
-      {/* 2-col: Scatter + Corr Bar */}
+      {/* Scatter + Corr Bar */}
       <div className="grid-2" style={{marginBottom:12}}>
         <div className="card">
-          <div style={{display:'flex',gap:0,marginBottom:12,borderRadius:8,overflow:'hidden',border:`1px solid ${C.border}`}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',marginBottom:12,borderRadius:8,overflow:'hidden',border:`1px solid ${C.border}`}}>
             {SCATTER_PAIRS.map((p,i)=>(
               <button key={i} onClick={()=>setScatterPair(i)}
-                style={{flex:1,borderRadius:0,background:scatterPair===i?'#1e293b':'transparent',color:scatterPair===i?C.text:C.muted,padding:'8px 4px',fontSize:11,border:'none',borderRight:i<2?`1px solid ${C.border}`:'none'}}>
+                style={{
+                  borderRadius:0,
+                  background:scatterPair===i?'#1e293b':'transparent',
+                  color:scatterPair===i?C.text:C.muted,
+                  padding:'7px 2px',fontSize:10,border:'none',
+                  borderRight:i%3<2?`1px solid ${C.border}`:'none',
+                  borderBottom:i<3?`1px solid ${C.border}`:'none',
+                }}>
                 {p.labelA}↔{p.labelB}
               </button>
             ))}
           </div>
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={220}>
             <ScatterChart margin={{top:5,right:10,left:0,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
               <XAxis type="number" dataKey="x" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelA} unit="%" />
@@ -368,18 +443,19 @@ function App(){
               <Scatter data={scatterData} fill={sp.colorA} fillOpacity={0.8} r={5} />
             </ScatterChart>
           </ResponsiveContainer>
-          <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:4}}>Daily Returns Scatter (x: {sp.labelA}, y: {sp.labelB})</div>
+          <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:4}}>Daily Returns Scatter — x: {sp.labelA} / y: {sp.labelB}</div>
         </div>
+
         <div className="card">
           <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Correlation Coefficients</div>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={barData} layout="vertical" margin={{top:5,right:20,left:0,bottom:5}}>
+            <BarChart data={barData} layout="vertical" margin={{top:5,right:24,left:8,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
               <XAxis type="number" domain={[-1,1]} tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} />
-              <YAxis type="category" dataKey="name" tick={{fill:C.muted,fontSize:11}} tickLine={false} axisLine={{stroke:C.border}} width={100} />
+              <YAxis type="category" dataKey="name" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} width={88} />
               <ReferenceLine x={0} stroke={C.muted} />
               <Tooltip contentStyle={ttStyle} formatter={(v)=>v.toFixed(3)} />
-              <Bar dataKey="value" radius={[0,4,4,0]} barSize={28}>
+              <Bar dataKey="value" radius={[0,4,4,0]} barSize={20}>
                 {barData.map((d,i)=><Cell key={i} fill={d.color} fillOpacity={0.85} />)}
               </Bar>
             </BarChart>
@@ -400,7 +476,12 @@ function App(){
         <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Daily Data</div>
         <table>
           <thead><tr>
-            <th>Date</th><th>USD/KRW</th><th>Chg%</th><th>WTI</th><th>Chg%</th><th>KOSPI</th><th>Chg%</th>
+            <th>Date</th>
+            <th>USD/KRW</th><th>Chg%</th>
+            <th>WTI</th><th>Chg%</th>
+            <th>Brent</th><th>Chg%</th>
+            <th>Gold</th><th>Chg%</th>
+            <th>KOSPI</th><th>Chg%</th>
           </tr></thead>
           <tbody>
             {tableData.map(r=>(
@@ -410,6 +491,10 @@ function App(){
                 <td className={r.chgKrw==null?'':r.chgKrw>=0?'up':'dn'}>{r.chgKrw!=null?fmtPct(r.chgKrw):'—'}</td>
                 <td>{fmtNum(r.wti,2)}</td>
                 <td className={r.chgWti==null?'':r.chgWti>=0?'up':'dn'}>{r.chgWti!=null?fmtPct(r.chgWti):'—'}</td>
+                <td>{fmtNum(r.brent,2)}</td>
+                <td className={r.chgBrent==null?'':r.chgBrent>=0?'up':'dn'}>{r.chgBrent!=null?fmtPct(r.chgBrent):'—'}</td>
+                <td>{fmtNum(r.gold,0)}</td>
+                <td className={r.chgGold==null?'':r.chgGold>=0?'up':'dn'}>{r.chgGold!=null?fmtPct(r.chgGold):'—'}</td>
                 <td>{fmtNum(r.kospi,1)}</td>
                 <td className={r.chgKospi==null?'':r.chgKospi>=0?'up':'dn'}>{r.chgKospi!=null?fmtPct(r.chgKospi):'—'}</td>
               </tr>
@@ -418,42 +503,75 @@ function App(){
         </table>
       </div>
 
-      {/* Interpretation Notes */}
+      {/* Analysis Notes */}
       <div className="card" style={{marginBottom:12}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Analysis Notes</div>
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Analysis Notes — 이란 분쟁 맥락</div>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+
           <div>
             <div style={{fontSize:12,fontWeight:600,color:C.amber,marginBottom:4}}>환율 ↔ KOSPI (r = {corrKK.toFixed(3)})</div>
             <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
               {Math.abs(corrKK)>0.5
-                ?'환율 상승(원화 약세)과 KOSPI 하락이 강한 역상관을 보이고 있습니다. 외국인 자금 이탈과 수입 비용 증가가 동시에 작용하는 구간입니다.'
-                :'환율과 KOSPI 간 뚜렷한 상관관계가 관측되지 않습니다. 개별 이벤트 요인이 더 크게 작용하는 구간입니다.'}
+                ?'원화 약세와 KOSPI 하락이 강한 역상관. 이란 분쟁발 외국인 자금 이탈과 안전자산 선호가 동시에 작용하고 있습니다. 신흥국 통화 리스크 전형 패턴입니다.'
+                :'환율-KOSPI 뚜렷한 상관 미관측. 개별 이벤트 요인이 우세한 구간입니다.'}
             </div>
           </div>
+
           <div>
-            <div style={{fontSize:12,fontWeight:600,color:C.emerald,marginBottom:4}}>유가 ↔ KOSPI (r = {corrWK.toFixed(3)})</div>
+            <div style={{fontSize:12,fontWeight:600,color:C.emerald,marginBottom:4}}>WTI ↔ KOSPI (r = {corrWK.toFixed(3)})</div>
             <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
               {corrWK<-0.3
-                ?'유가 급등이 KOSPI에 부정적 영향을 미치고 있습니다. 에너지 수입 의존도가 높은 한국 경제 구조 상 유가 상승은 기업 비용 부담으로 이어집니다.'
+                ?'유가 급등 → KOSPI 하락 역상관. 이란발 공급 차질로 원유 상승 → 에너지 수입 원가 상승 → 기업 이익 훼손 경로가 작동 중입니다. 한국은 원유 수입 의존도 약 93%.'
                 :corrWK>0.3
-                ?'유가와 KOSPI가 동조화 움직임을 보이고 있습니다. 글로벌 경기 회복 기대가 양쪽을 동시에 끌어올리는 국면일 수 있습니다.'
-                :'유가와 KOSPI 간 상관관계가 약합니다. 유가 변동이 아직 국내 시장에 충분히 반영되지 않은 상태일 수 있습니다.'}
+                ?'유가-KOSPI 동조화. 글로벌 경기 회복 기대가 두 지표를 함께 견인하는 국면입니다.'
+                :'유가-KOSPI 상관 약함. 분쟁 영향이 아직 시장에 충분히 반영되지 않은 상태일 수 있습니다.'}
             </div>
           </div>
+
           <div>
-            <div style={{fontSize:12,fontWeight:600,color:C.blue,marginBottom:4}}>환율 ↔ 유가 (r = {corrKW.toFixed(3)})</div>
+            <div style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:4}}>Gold ↔ KOSPI (r = {corrGK.toFixed(3)})</div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+              {corrGK<-0.3
+                ?'금 상승 / KOSPI 하락 역상관 — 지정학 리스크 고조 시 안전자산(금) 매수와 위험자산(주식) 매도가 동시에 나타나는 전형적인 패턴. 이란 분쟁 에스컬레이션 구간에서 이 역상관이 강화되는 경향이 있습니다.'
+                :'금-KOSPI 역상관 미관측. 분쟁이 장기화되거나 확전될 경우 역상관이 강화될 가능성이 있습니다.'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:4}}>Gold ↔ WTI (r = {corrGW.toFixed(3)})</div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+              {corrGW>0.5
+                ?'금과 WTI 강한 동조화 — 이란 분쟁이 지정학 리스크 프리미엄을 두 자산에 동시 반영. 금은 인플레이션 헤지, WTI는 공급 충격으로 각기 상승 중이며 복합적 리스크 축적을 시사합니다.'
+                :corrGW>0.2
+                ?'금-WTI 중간 수준 동조화. 지정학 리스크가 두 자산에 영향을 주고 있으나 강도는 제한적입니다.'
+                :'금-WTI 상관 약함. 각 자산의 개별 수급 요인이 지배적입니다.'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.brent,marginBottom:4}}>Brent ↔ WTI (r = {corrBW.toFixed(3)})</div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+              {corrBW>0.85
+                ?'Brent-WTI 고동조화. 두 원유 지표 모두 이란 공급 리스크를 반영. 호르무즈 해협 위협 시 Brent 프리미엄이 확대되는 경향이 있으며, 스프레드 확대는 중동 리스크 강화 신호입니다.'
+                :'Brent-WTI 동조화 약화. 지역별 수급 차이로 스프레드가 변동 중입니다.'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.blue,marginBottom:4}}>환율 ↔ WTI (r = {corrKW.toFixed(3)})</div>
             <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
               {corrKW>0.3
-                ?'유가 상승과 원화 약세가 동시에 진행되고 있습니다. 지정학적 리스크(이란 분쟁)가 달러 강세와 원유 가격 상승을 함께 유발하는 전형적인 패턴입니다.'
-                :'환율과 유가 간 뚜렷한 동조화가 관측되지 않습니다.'}
+                ?'유가 상승 + 원화 약세 동시 진행 — 이란 분쟁이 달러 강세(안전자산 수요)와 원유 상승을 함께 유발하는 전형 패턴. 한국 경상수지 악화와 수입 물가 상승 압력이 복합적으로 작용합니다.'
+                :'환율-유가 동조화 미관측. 달러 수요와 원유 가격 결정 요인이 분리되어 작동 중입니다.'}
             </div>
           </div>
+
         </div>
       </div>
 
       {/* Footer */}
       <div style={{textAlign:'center',fontSize:11,color:'#475569',padding:'16px 0'}}>
-        Data: open.er-api.com · Yahoo Finance · 5min auto-refresh
+        Data: open.er-api.com · Yahoo Finance (WTI CL=F · Brent BZ=F · Gold GC=F · KOSPI ^KS11) · 5min auto-refresh
       </div>
     </div>
   );
