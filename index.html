@@ -16,8 +16,9 @@ body{background:#0b0f19;color:#e2e8f0;font-family:'JetBrains Mono',monospace;lin
 #root{max-width:1200px;margin:0 auto;padding:24px 16px 48px}
 .card{background:#111827;border:1px solid #1e293b;border-radius:12px;padding:20px}
 .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.insight{background:#0b0f19;border-left:3px solid #1e293b;border-radius:0 8px 8px 0;padding:10px 14px;margin-top:12px;font-size:12px;color:#94a3b8;line-height:1.7}
 table{width:100%;border-collapse:collapse;font-size:11px}
 th,td{padding:7px 8px;text-align:right;border-bottom:1px solid #1e293b}
 th{color:#94a3b8;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:0.5px}
@@ -25,8 +26,8 @@ td:first-child,th:first-child{text-align:left}
 .up{color:#10b981}.dn{color:#ef4444}
 button{font-family:inherit;cursor:pointer;border:none;border-radius:8px;font-size:12px;font-weight:600;padding:6px 14px;transition:opacity .15s}
 button:hover{opacity:0.85}
-@media(max-width:900px){.grid-5{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:768px){.grid-3,.grid-2,.grid-5{grid-template-columns:1fr}.card{padding:14px}#root{padding:12px 8px 32px}}
+@media(max-width:900px){.grid-4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){.grid-3,.grid-4,.grid-2{grid-template-columns:1fr}.card{padding:14px}#root{padding:12px 8px 32px}}
 </style>
 </head>
 <body>
@@ -38,7 +39,7 @@ const {AreaChart,Area,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,Scat
 // ── Colors ──
 const C={
   amber:'#f59e0b',emerald:'#10b981',blue:'#3b82f6',
-  gold:'#facc15',brent:'#c084fc',spx:'#ec4899',
+  gold:'#facc15',brent:'#c084fc',sp500:'#22d3ee',
   up:'#10b981',dn:'#ef4444',bg:'#0b0f19',card:'#111827',
   border:'#1e293b',muted:'#94a3b8',text:'#e2e8f0'
 };
@@ -50,23 +51,17 @@ const FALLBACK_WTI  =[68.8,72.5,79.8,76.2,73.1,74.5,80.2,85.3,87.2,95.7,98.7];
 const FALLBACK_KOSPI=[6180,5950,5340,5520,5680,5630,5420,5059.5,5609,5574.5,5487.2];
 const FALLBACK_GOLD =[2802,2848,2955,2922,2898,2932,2988,3058,3082,3128,3187];
 const FALLBACK_BRENT=[72.3,75.8,84.5,80.8,77.5,79.2,85.8,90.8,92.5,101.2,104.8];
-const FALLBACK_SPX  =[5950,5870,5610,5700,5730,5680,5550,5420,5580,5520,5490];
+const FALLBACK_SP500=[5983,5862,5615,5699,5738,5770,5770,5614,5572,5521,5536];
 
 function buildFallback(){
   return FALLBACK_DATES.map((d,i)=>({
     date:'2026-'+d,
     krw:FALLBACK_KRW[i],wti:FALLBACK_WTI[i],kospi:FALLBACK_KOSPI[i],
-    gold:FALLBACK_GOLD[i],brent:FALLBACK_BRENT[i],spx:FALLBACK_SPX[i]
+    gold:FALLBACK_GOLD[i],brent:FALLBACK_BRENT[i],sp500:FALLBACK_SP500[i]
   }));
 }
 
 // ── Fetch helpers ──
-async function fetchKRW(){
-  try{const r=await fetch('https://open.er-api.com/v6/latest/USD');const j=await r.json();if(j.rates?.KRW)return j.rates.KRW;}catch{}
-  try{const r=await fetch('https://api.exchangerate-api.com/v4/latest/USD');const j=await r.json();if(j.rates?.KRW)return j.rates.KRW;}catch{}
-  return null;
-}
-
 const CORS_PROXIES=[
   u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
   u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
@@ -112,12 +107,6 @@ function pearson(x,y){
   return den===0?0:num/den;
 }
 
-function normalize(arr){
-  if(!arr.length)return[];
-  const f=arr[0];
-  return arr.map(v=>(v-f)/f*100);
-}
-
 function zScore(arr){
   if(arr.length<2)return arr.map(()=>0);
   const mean=arr.reduce((a,b)=>a+b,0)/arr.length;
@@ -139,16 +128,11 @@ function corrLabel(r){
 }
 
 // ── OLS multiple regression ──
-// returns {beta: number[], r2: number, intercept: number}
-// y = intercept + beta[0]*X[0] + beta[1]*X[1] + ...
 function olsRegression(Xs, y){
   const n=y.length;
-  const k=Xs.length; // number of predictors
+  const k=Xs.length;
   if(n<k+2) return null;
-  // Build X matrix with intercept column
-  // Using normal equations: beta = (X'X)^-1 X'y
-  const cols=k+1; // +1 for intercept
-  // X'X
+  const cols=k+1;
   const XtX=Array.from({length:cols},()=>new Float64Array(cols));
   const Xty=new Float64Array(cols);
   for(let i=0;i<n;i++){
@@ -158,7 +142,6 @@ function olsRegression(Xs, y){
       Xty[a]+=row[a]*y[i];
     }
   }
-  // Gauss-Jordan to invert XtX and solve
   const aug=XtX.map((r,i)=>{const row=new Float64Array(cols*2);for(let j=0;j<cols;j++)row[j]=r[j];row[cols+i]=1;return row;});
   for(let p=0;p<cols;p++){
     let maxR=p;
@@ -175,7 +158,6 @@ function olsRegression(Xs, y){
   const inv=aug.map(r=>Array.from(r.slice(cols)));
   const beta=new Float64Array(cols);
   for(let a=0;a<cols;a++) for(let b=0;b<cols;b++) beta[a]+=inv[a][b]*Xty[b];
-  // R²
   const my=y.reduce((a,b)=>a+b,0)/n;
   let ssTot=0,ssRes=0;
   for(let i=0;i<n;i++){
@@ -189,6 +171,46 @@ function olsRegression(Xs, y){
 
 function fmtNum(v,d=1){return v==null?'—':v.toFixed(d)}
 function fmtPct(v){return v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%'}
+
+// ── Scatter interpretation ──
+const SCATTER_NOTES={
+  krw_kospi:(r)=>r<-0.4
+    ?'원화 약세(환율↑) 시 KOSPI 하락하는 역상관. 이란 분쟁발 외국인 자금 이탈 → 원화 매도 + 주식 매도가 동시 진행되는 신흥국 리스크 오프 패턴입니다.'
+    :r>0.3
+    ?'환율 상승과 KOSPI 동반 상승 구간. 글로벌 달러 강세보다 국내 경기 모멘텀이 우세한 드문 국면입니다.'
+    :'환율-KOSPI 산포가 넓고 상관이 약합니다. 단기 노이즈가 지배적이거나 이벤트 혼재 구간입니다.',
+  wti_kospi:(r)=>r<-0.3
+    ?'유가 급등 → KOSPI 하락 역상관. 원유 수입 의존도 93% 한국 특성상 유가 상승은 기업 원가 압박 → 이익 훼손 경로로 이어집니다. 이란 공급 충격이 직접 작동 중.'
+    :r>0.3
+    ?'유가-KOSPI 동조 상승. 글로벌 경기 회복 기대가 두 지표를 함께 견인하는 리스크 온 국면입니다.'
+    :'유가-KOSPI 상관 불명확. 분쟁 영향이 아직 시장에 충분히 반영되지 않은 상태일 수 있습니다.',
+  gold_kospi:(r)=>r<-0.3
+    ?'금 상승 / KOSPI 하락 역상관. 지정학 리스크 고조 시 안전자산(금) 매수 ↔ 위험자산(주식) 매도의 전형 패턴. 이란 에스컬레이션 구간에서 역상관이 강화됩니다.'
+    :r>0.3
+    ?'금-KOSPI 동반 상승. 리스크 온 + 인플레이션 기대가 혼재하는 특이 구간입니다.'
+    :'금-KOSPI 역상관 미관측. 분쟁이 장기화되거나 확전될 경우 역상관이 강화될 가능성이 있습니다.',
+  brent_wti:(r)=>r>0.8
+    ?'Brent-WTI 고동조화. 두 원유가 모두 이란 공급 리스크를 반영. 호르무즈 위협 시 Brent 프리미엄 확대 — 스프레드 벌어지면 중동 리스크 심화 신호입니다.'
+    :'Brent-WTI 동조화 약화. 지역별 수급 차이로 스프레드가 확대 중입니다.',
+  gold_wti:(r)=>r>0.5
+    ?'금-WTI 강한 동조화. 이란 분쟁이 지정학 리스크 프리미엄을 두 자산에 동시 반영 — 금은 인플레이션 헤지, WTI는 공급 충격으로 복합 리스크 축적 국면입니다.'
+    :r>0.2
+    ?'금-WTI 중간 수준 동조화. 지정학 리스크가 두 자산에 영향 중이나 강도가 제한적입니다.'
+    :'금-WTI 상관 약함. 각 자산의 개별 수급 요인이 지배적입니다.',
+  krw_wti:(r)=>r>0.3
+    ?'유가 상승 + 원화 약세 동시 진행. 이란 분쟁이 달러 강세(안전자산)와 원유 상승을 함께 유발하는 전형 패턴. 경상수지 악화 + 수입 물가 상승 압력이 복합 작용합니다.'
+    :'환율-유가 동조화 미관측. 달러 수요와 원유 가격 결정 요인이 분리되어 작동 중입니다.',
+  sp500_kospi:(r)=>r>0.5
+    ?'S&P500-KOSPI 강한 동조화. 미국발 위험자산 동반 매도 국면 — 이란 리스크가 글로벌 주식 시장 전반에 전이되는 패턴입니다. 한국 시장은 미국 증시에 β=1 이상의 민감도를 보이는 경향이 있습니다.'
+    :r>0.2
+    ?'S&P500-KOSPI 중간 동조화. 글로벌 센티먼트가 두 시장을 연동하지만 한국 고유 요인(환율·수출)도 작용 중입니다.'
+    :'S&P500-KOSPI 동조 약함. 한국 장세가 미국보다 이란 분쟁에 더 직접 반응하는 디커플링 구간입니다.',
+  sp500_wti:(r)=>r<-0.3
+    ?'유가 상승 → S&P500 하락 역상관. 에너지 비용 상승이 미국 기업 이익 훼손 경로로 전달 중. 이란 공급 충격의 글로벌 파급을 보여주는 패턴입니다.'
+    :r>0.3
+    ?'유가-S&P500 동반 상승. 경기 확장 기대가 두 지표를 함께 견인하는 리스크 온 국면입니다.'
+    :'유가-S&P500 상관 불명확. 에너지 섹터 효과와 전체 시장 영향이 상쇄되는 구간일 수 있습니다.',
+};
 
 // ── Components ──
 function MetricCard({title,value,change,color,prefix='',suffix='',decimals=1}){
@@ -215,14 +237,14 @@ function CorrBadge({labelA,labelB,value}){
 }
 
 const SCATTER_PAIRS=[
-  {key:'spx_kospi', labelA:'S&P500',  labelB:'KOSPI',  colorA:C.spx,     colorB:C.blue},
   {key:'krw_kospi', labelA:'USD/KRW', labelB:'KOSPI',  colorA:C.amber,   colorB:C.blue},
   {key:'wti_kospi', labelA:'WTI',     labelB:'KOSPI',  colorA:C.emerald, colorB:C.blue},
   {key:'gold_kospi',labelA:'Gold',    labelB:'KOSPI',  colorA:C.gold,    colorB:C.blue},
-  {key:'spx_wti',   labelA:'S&P500',  labelB:'WTI',    colorA:C.spx,     colorB:C.emerald},
   {key:'brent_wti', labelA:'Brent',   labelB:'WTI',    colorA:C.brent,   colorB:C.emerald},
   {key:'gold_wti',  labelA:'Gold',    labelB:'WTI',    colorA:C.gold,    colorB:C.emerald},
   {key:'krw_wti',   labelA:'USD/KRW', labelB:'WTI',    colorA:C.amber,   colorB:C.emerald},
+  {key:'sp500_kospi',labelA:'S&P500', labelB:'KOSPI',  colorA:C.sp500,   colorB:C.blue},
+  {key:'sp500_wti', labelA:'S&P500',  labelB:'WTI',    colorA:C.sp500,   colorB:C.emerald},
 ];
 
 function App(){
@@ -236,7 +258,7 @@ function App(){
   const fetchAll=useCallback(async()=>{
     setStatus('Fetching...');
     try{
-      const [krwRes,wtiRes,kospiRes,goldRes,brentRes,spxRes]=await Promise.allSettled([
+      const [krwRes,wtiRes,kospiRes,goldRes,brentRes,sp500Res]=await Promise.allSettled([
         fetchYahoo('KRW%3DX'),
         fetchYahoo('CL%3DF'),
         fetchYahoo('%5EKS11'),
@@ -244,12 +266,12 @@ function App(){
         fetchYahoo('BZ%3DF'),
         fetchYahoo('%5EGSPC'),
       ]);
-      const krwData =krwRes.status==='fulfilled'?krwRes.value:null;
-      const wtiData =wtiRes.status==='fulfilled'?wtiRes.value:null;
+      const krwData  =krwRes.status==='fulfilled'?krwRes.value:null;
+      const wtiData  =wtiRes.status==='fulfilled'?wtiRes.value:null;
       const kospiData=kospiRes.status==='fulfilled'?kospiRes.value:null;
       const goldData =goldRes.status==='fulfilled'?goldRes.value:null;
       const brentData=brentRes.status==='fulfilled'?brentRes.value:null;
-      const spxData  =spxRes.status==='fulfilled'?spxRes.value:null;
+      const sp500Data=sp500Res.status==='fulfilled'?sp500Res.value:null;
 
       if(wtiData?.history?.length && kospiData?.history?.length){
         const dateMap=new Map();
@@ -261,12 +283,12 @@ function App(){
         if(krwData?.history)   for(const h of krwData.history)  {const e=dateMap.get(h.date);if(e)e.krw=h.close;}
         if(goldData?.history)  for(const h of goldData.history) {const e=dateMap.get(h.date);if(e)e.gold=h.close;}
         if(brentData?.history) for(const h of brentData.history){const e=dateMap.get(h.date);if(e)e.brent=h.close;}
-        if(spxData?.history)   for(const h of spxData.history)  {const e=dateMap.get(h.date);if(e)e.spx=h.close;}
+        if(sp500Data?.history) for(const h of sp500Data.history){const e=dateMap.get(h.date);if(e)e.sp500=h.close;}
 
         const fallKrw  =FALLBACK_KRW[FALLBACK_KRW.length-1];
         const fallGold =FALLBACK_GOLD[FALLBACK_GOLD.length-1];
         const fallBrent=FALLBACK_BRENT[FALLBACK_BRENT.length-1];
-        const fallSpx  =FALLBACK_SPX[FALLBACK_SPX.length-1];
+        const fallSp500=FALLBACK_SP500[FALLBACK_SP500.length-1];
         const merged=[...dateMap.entries()]
           .filter(([,v])=>v.wti!=null&&v.kospi!=null)
           .sort(([a],[b])=>a.localeCompare(b))
@@ -276,21 +298,20 @@ function App(){
             wti:v.wti, kospi:v.kospi,
             gold:v.gold||fallGold,
             brent:v.brent||fallBrent,
-            spx:v.spx||fallSpx,
+            sp500:v.sp500||fallSp500,
           }));
         if(merged.length>=3){
           const last=merged[merged.length-1];
           if(krwData?.current)   last.krw=krwData.current;
           if(goldData?.current)  last.gold=goldData.current;
           if(brentData?.current) last.brent=brentData.current;
-          if(spxData?.current)   last.spx=spxData.current;
+          if(sp500Data?.current) last.sp500=sp500Data.current;
           setData(merged);
           setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
           setCountdown(300);
           return;
         }
       }
-      // partial fallback
       const fb=buildFallback();
       const last=fb[fb.length-1];
       if(krwData?.current)  last.krw=krwData.current;
@@ -298,7 +319,7 @@ function App(){
       if(kospiData?.current)last.kospi=kospiData.current;
       if(goldData?.current) last.gold=goldData.current;
       if(brentData?.current)last.brent=brentData.current;
-      if(spxData?.current)  last.spx=spxData.current;
+      if(sp500Data?.current)last.sp500=sp500Data.current;
       setData(fb);
       setStatus('Partial data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
       setCountdown(300);
@@ -329,7 +350,7 @@ function App(){
   const kospiArr=data.map(d=>d.kospi);
   const goldArr =data.map(d=>d.gold);
   const brentArr=data.map(d=>d.brent);
-  const spxArr  =data.map(d=>d.spx);
+  const sp500Arr=data.map(d=>d.sp500);
   const dates   =data.map(d=>d.date);
 
   const retKrw  =calcReturns(krwArr);
@@ -337,16 +358,16 @@ function App(){
   const retKospi=calcReturns(kospiArr);
   const retGold =calcReturns(goldArr);
   const retBrent=calcReturns(brentArr);
-  const retSpx  =calcReturns(spxArr);
+  const retSp500=calcReturns(sp500Arr);
 
-  const corrKK=pearson(retKrw,  retKospi);  // 환율↔KOSPI
-  const corrWK=pearson(retWti,  retKospi);  // WTI↔KOSPI
-  const corrGK=pearson(retGold, retKospi);  // Gold↔KOSPI
-  const corrSK=pearson(retSpx,  retKospi);  // S&P500↔KOSPI
-  const corrKW=pearson(retKrw,  retWti);    // 환율↔WTI
-  const corrGW=pearson(retGold, retWti);    // Gold↔WTI
-  const corrBW=pearson(retBrent,retWti);    // Brent↔WTI
-  const corrSW=pearson(retSpx,  retWti);    // S&P500↔WTI
+  const corrKK =pearson(retKrw,  retKospi);
+  const corrWK =pearson(retWti,  retKospi);
+  const corrGK =pearson(retGold, retKospi);
+  const corrKW =pearson(retKrw,  retWti);
+  const corrGW =pearson(retGold, retWti);
+  const corrBW =pearson(retBrent,retWti);
+  const corrSK =pearson(retSp500,retKospi);
+  const corrSW =pearson(retSp500,retWti);
 
   const normData=dates.map((d,i)=>({
     date:d.slice(5),
@@ -355,7 +376,7 @@ function App(){
     kospi:zScore(kospiArr)[i],
     gold:zScore(goldArr)[i],
     brent:zScore(brentArr)[i],
-    spx:zScore(spxArr)[i],
+    sp500:zScore(sp500Arr)[i],
   }));
 
   const latest=data[data.length-1];
@@ -365,40 +386,47 @@ function App(){
   const chgKospi=(latest.kospi-prev.kospi)/prev.kospi*100;
   const chgGold =(latest.gold -prev.gold )/prev.gold *100;
   const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
-  const chgSpx  =(latest.spx  -prev.spx  )/prev.spx  *100;
+  const chgSp500=(latest.sp500-prev.sp500)/prev.sp500*100;
 
   // ── KOSPI Prediction via OLS ──
   const prediction=useMemo(()=>{
     if(retKrw.length<5) return null;
-    const ols=olsRegression([retKrw,retWti,retGold,retBrent,retSpx],retKospi);
+    const ols=olsRegression([retKrw,retWti,retGold,retBrent,retSp500],retKospi);
     if(!ols) return null;
-    const todayVals=[chgKrw,chgWti,chgGold,chgBrent,chgSpx];
-    const predReturn=ols.intercept + ols.beta.reduce((s,b,i)=>s+b*todayVals[i],0);
+    const vals=[chgKrw,chgWti,chgGold,chgBrent,chgSp500];
+    const predReturn=ols.intercept + ols.beta.reduce((s,b,i)=>s+b*vals[i],0);
     const predKospi=latest.kospi*(1+predReturn/100);
     const labels=['USD/KRW','WTI','Gold','Brent','S&P500'];
-    const contributions=ols.beta.map((b,i)=>({label:labels[i], beta:b, contrib:b*todayVals[i]}));
+    const contributions=ols.beta.map((b,i)=>({label:labels[i], beta:b, contrib:b*vals[i]}));
     contributions.sort((a,b)=>Math.abs(b.contrib)-Math.abs(a.contrib));
-    return {predReturn, predKospi, r2:ols.r2, intercept:ols.intercept, beta:ols.beta, contributions};
-  },[retKrw,retWti,retGold,retBrent,retSpx,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSpx,latest]);
+    return {predReturn, predKospi, r2:ols.r2, contributions};
+  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
 
-  // scatter data (z-score normalized returns for equal axis scale)
+  // scatter data (z-score normalized returns)
   const scatterData=useMemo(()=>{
     const sp=SCATTER_PAIRS[scatterPair];
-    const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent,spx:retSpx};
+    const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent,sp500:retSp500};
     const [ka,kb]=sp.key.split('_');
     const zA=zScore(map[ka]), zB=zScore(map[kb]);
     return zA.map((v,i)=>({x:v,y:zB[i]||0})).filter(d=>!isNaN(d.x)&&!isNaN(d.y));
-  },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent,retSpx]);
+  },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent,retSp500]);
+
+  const currentPairCorr=useMemo(()=>{
+    const sp=SCATTER_PAIRS[scatterPair];
+    const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent,sp500:retSp500};
+    const [ka,kb]=sp.key.split('_');
+    return pearson(map[ka],map[kb]);
+  },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent,retSp500]);
 
   const barData=[
-    {name:'S&P↔KOSPI', value:corrSK, color:corrColor(corrSK)},
-    {name:'KRW↔KOSPI', value:corrKK, color:corrColor(corrKK)},
-    {name:'WTI↔KOSPI', value:corrWK, color:corrColor(corrWK)},
-    {name:'Gold↔KOSPI',value:corrGK, color:corrColor(corrGK)},
-    {name:'S&P↔WTI',   value:corrSW, color:corrColor(corrSW)},
-    {name:'KRW↔WTI',   value:corrKW, color:corrColor(corrKW)},
-    {name:'Gold↔WTI',  value:corrGW, color:corrColor(corrGW)},
-    {name:'Brent↔WTI', value:corrBW, color:corrColor(corrBW)},
+    {name:'KRW↔KOSPI',  value:corrKK, color:corrColor(corrKK)},
+    {name:'WTI↔KOSPI',  value:corrWK, color:corrColor(corrWK)},
+    {name:'Gold↔KOSPI', value:corrGK, color:corrColor(corrGK)},
+    {name:'KRW↔WTI',    value:corrKW, color:corrColor(corrKW)},
+    {name:'Gold↔WTI',   value:corrGW, color:corrColor(corrGW)},
+    {name:'Brent↔WTI',  value:corrBW, color:corrColor(corrBW)},
+    {name:'S&P↔KOSPI',  value:corrSK, color:corrColor(corrSK)},
+    {name:'S&P↔WTI',    value:corrSW, color:corrColor(corrSW)},
   ];
 
   const tableData=data.map((d,i)=>{
@@ -409,12 +437,14 @@ function App(){
       wti:d.wti,   chgWti:  p?(d.wti  -p.wti  )/p.wti  *100:null,
       brent:d.brent,chgBrent:p?(d.brent-p.brent)/p.brent*100:null,
       gold:d.gold, chgGold: p?(d.gold -p.gold )/p.gold *100:null,
-      spx:d.spx,   chgSpx:  p?(d.spx  -p.spx  )/p.spx  *100:null,
       kospi:d.kospi,chgKospi:p?(d.kospi-p.kospi)/p.kospi*100:null,
+      sp500:d.sp500,chgSp500:p?(d.sp500-p.sp500)/p.sp500*100:null,
     };
   });
 
   const ttStyle={backgroundColor:'#1e293b',border:'1px solid #334155',borderRadius:8,fontSize:11,fontFamily:'JetBrains Mono',color:C.text};
+  const ttItem={color:C.text};
+  const ttLabel={color:C.muted};
   const mins=Math.floor(countdown/60);
   const secs=countdown%60;
   const sp=SCATTER_PAIRS[scatterPair];
@@ -425,9 +455,12 @@ function App(){
   const pChgKospi=((latest.kospi-first.kospi)/first.kospi*100);
   const pChgGold =((latest.gold -first.gold )/first.gold *100);
   const pChgBrent=((latest.brent-first.brent)/first.brent*100);
-  const pChgSpx  =((latest.spx  -first.spx  )/first.spx  *100);
+  const pChgSp500=((latest.sp500-first.sp500)/first.sp500*100);
 
-  const nameMap={krw:'USD/KRW',wti:'WTI',kospi:'KOSPI',gold:'Gold',brent:'Brent',spx:'S&P500'};
+  const nameMap={krw:'USD/KRW',wti:'WTI',kospi:'KOSPI',gold:'Gold',brent:'Brent',sp500:'S&P500'};
+
+  // Top corr pair from bar chart for insight
+  const topCorr=barData.reduce((a,b)=>Math.abs(b.value)>Math.abs(a.value)?b:a);
 
   return(
     <div>
@@ -447,16 +480,16 @@ function App(){
         </div>
       </div>
 
-      {/* 6 Metric Cards */}
+      {/* 6 Metric Cards — 3+3 */}
       <div className="grid-3" style={{marginBottom:8}}>
-        <MetricCard title="S&P 500"    value={latest.spx}   change={chgSpx}   color={C.spx}     decimals={1} />
-        <MetricCard title="KOSPI"      value={latest.kospi} change={chgKospi} color={C.blue}    decimals={1} />
         <MetricCard title="USD/KRW"    value={latest.krw}   change={chgKrw}   color={C.amber}   prefix="₩" decimals={1} />
-      </div>
-      <div className="grid-3" style={{marginBottom:12}}>
         <MetricCard title="WTI Crude"  value={latest.wti}   change={chgWti}   color={C.emerald} prefix="$" decimals={2} />
         <MetricCard title="Brent Crude"value={latest.brent} change={chgBrent} color={C.brent}   prefix="$" decimals={2} />
+      </div>
+      <div className="grid-3" style={{marginBottom:12}}>
         <MetricCard title="Gold"       value={latest.gold}  change={chgGold}  color={C.gold}    prefix="$" decimals={0} />
+        <MetricCard title="S&P 500"    value={latest.sp500} change={chgSp500} color={C.sp500}   decimals={1} />
+        <MetricCard title="KOSPI"      value={latest.kospi} change={chgKospi} color={C.blue}    decimals={1} />
       </div>
 
       {/* KOSPI Prediction Card */}
@@ -496,27 +529,27 @@ function App(){
       <div className="card" style={{borderLeft:`3px solid ${C.dn}`,borderTop:'none',marginBottom:12,padding:'12px 16px'}}>
         <div style={{fontSize:12,fontWeight:700,color:C.dn,marginBottom:8}}>⚠ 이란 분쟁 영향 — 기간 누적 변화 ({first.date.slice(5)} → {latest.date.slice(5)})</div>
         <div style={{display:'flex',gap:24,flexWrap:'wrap',fontSize:12,fontWeight:600}}>
-          <span style={{color:C.spx}}>S&P500 {pChgSpx>=0?'+':''}{pChgSpx.toFixed(1)}%</span>
           <span style={{color:C.emerald}}>WTI {pChgWti>=0?'+':''}{pChgWti.toFixed(1)}%</span>
           <span style={{color:C.brent}}>Brent {pChgBrent>=0?'+':''}{pChgBrent.toFixed(1)}%</span>
           <span style={{color:C.gold}}>Gold {pChgGold>=0?'+':''}{pChgGold.toFixed(1)}%</span>
           <span style={{color:C.amber}}>USD/KRW {pChgKrw>=0?'+':''}{pChgKrw.toFixed(1)}%</span>
+          <span style={{color:C.sp500}}>S&P500 {pChgSp500>=0?'+':''}{pChgSp500.toFixed(1)}%</span>
           <span style={{color:C.blue}}>KOSPI {pChgKospi>=0?'+':''}{pChgKospi.toFixed(1)}%</span>
         </div>
       </div>
 
-      {/* Correlation Badges */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:8}}>
+      {/* Correlation Badges — 4+4 */}
+      <div className="grid-4" style={{marginBottom:8}}>
+        <CorrBadge labelA="환율"  labelB="KOSPI" value={corrKK} />
+        <CorrBadge labelA="WTI"  labelB="KOSPI" value={corrWK} />
+        <CorrBadge labelA="Gold" labelB="KOSPI" value={corrGK} />
         <CorrBadge labelA="S&P500" labelB="KOSPI" value={corrSK} />
-        <CorrBadge labelA="환율"   labelB="KOSPI" value={corrKK} />
-        <CorrBadge labelA="WTI"    labelB="KOSPI" value={corrWK} />
-        <CorrBadge labelA="Gold"   labelB="KOSPI" value={corrGK} />
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:12}}>
-        <CorrBadge labelA="S&P500" labelB="WTI"   value={corrSW} />
-        <CorrBadge labelA="환율"   labelB="WTI"   value={corrKW} />
-        <CorrBadge labelA="Gold"   labelB="WTI"   value={corrGW} />
-        <CorrBadge labelA="Brent"  labelB="WTI"   value={corrBW} />
+      <div className="grid-4" style={{marginBottom:12}}>
+        <CorrBadge labelA="환율"  labelB="WTI"  value={corrKW} />
+        <CorrBadge labelA="Gold" labelB="WTI"  value={corrGW} />
+        <CorrBadge labelA="Brent" labelB="WTI" value={corrBW} />
+        <CorrBadge labelA="S&P500" labelB="WTI" value={corrSW} />
       </div>
 
       {/* Normalized Returns Chart */}
@@ -529,22 +562,33 @@ function App(){
             <XAxis dataKey="date" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} />
             <YAxis tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} tickFormatter={v=>v.toFixed(1)+'σ'} />
             <ReferenceLine y={0} stroke={C.muted} strokeDasharray="4 4" />
-            <Tooltip contentStyle={ttStyle} formatter={(v,n)=>[v.toFixed(2)+'σ', nameMap[n]||n]} />
+            <Tooltip contentStyle={ttStyle} itemStyle={ttItem} labelStyle={ttLabel} formatter={(v,n)=>[v.toFixed(2)+'σ', nameMap[n]||n]} />
             <Area type="monotone" dataKey="krw"   stroke={C.amber}   fill={C.amber}   fillOpacity={0.06} strokeWidth={2} name="krw"   dot={false} />
             <Area type="monotone" dataKey="wti"   stroke={C.emerald} fill={C.emerald} fillOpacity={0.06} strokeWidth={2} name="wti"   dot={false} />
             <Area type="monotone" dataKey="brent" stroke={C.brent}   fill={C.brent}   fillOpacity={0.06} strokeWidth={2} name="brent" dot={false} />
             <Area type="monotone" dataKey="gold"  stroke={C.gold}    fill={C.gold}    fillOpacity={0.06} strokeWidth={2} name="gold"  dot={false} />
-            <Area type="monotone" dataKey="spx"   stroke={C.spx}     fill={C.spx}     fillOpacity={0.06} strokeWidth={2} name="spx"   dot={false} />
+            <Area type="monotone" dataKey="sp500" stroke={C.sp500}   fill={C.sp500}   fillOpacity={0.06} strokeWidth={2} name="sp500" dot={false} />
             <Area type="monotone" dataKey="kospi" stroke={C.blue}    fill={C.blue}    fillOpacity={0.06} strokeWidth={2} name="kospi" dot={false} />
           </AreaChart>
         </ResponsiveContainer>
         <div style={{display:'flex',justifyContent:'center',gap:20,marginTop:10,flexWrap:'wrap'}}>
-          {[['USD/KRW',C.amber],['WTI',C.emerald],['Brent',C.brent],['Gold',C.gold],['KOSPI',C.blue]].map(([l,c])=>(
+          {[['USD/KRW',C.amber],['WTI',C.emerald],['Brent',C.brent],['Gold',C.gold],['S&P500',C.sp500],['KOSPI',C.blue]].map(([l,c])=>(
             <div key={l} style={{display:'flex',alignItems:'center',gap:6}}>
               <div style={{width:10,height:10,borderRadius:5,background:c}} />
               <span style={{fontSize:11,color:C.muted}}>{l}</span>
             </div>
           ))}
+        </div>
+        <div className="insight">
+          {(()=>{
+            const rising=[]; const falling=[];
+            if(pChgWti>5)rising.push('WTI'); if(pChgBrent>5)rising.push('Brent'); if(pChgGold>5)rising.push('Gold');
+            if(pChgKospi<-5)falling.push('KOSPI'); if(pChgSp500<-5)falling.push('S&P500');
+            const diverged=rising.length>0&&falling.length>0;
+            return diverged
+              ?`이란 분쟁 기간 중 ${rising.join('·')} 급등(+${Math.max(pChgWti,pChgBrent,pChgGold).toFixed(1)}%) vs ${falling.join('·')} 하락(${Math.min(pChgKospi,pChgSp500).toFixed(1)}%) — 전형적인 지정학 리스크 다이버전스 패턴. 안전자산과 위험자산의 방향 분리가 뚜렷합니다.`
+              :`현재 누적 변화: WTI ${pChgWti>=0?'+':''}${pChgWti.toFixed(1)}% / Gold ${pChgGold>=0?'+':''}${pChgGold.toFixed(1)}% / KOSPI ${pChgKospi>=0?'+':''}${pChgKospi.toFixed(1)}% / S&P500 ${pChgSp500>=0?'+':''}${pChgSp500.toFixed(1)}%. 지표간 상대적 강도를 σ 단위로 비교하세요.`;
+          })()}
         </div>
       </div>
 
@@ -573,23 +617,26 @@ function App(){
               <YAxis type="number" dataKey="y" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelB} unit="σ" />
               <ReferenceLine x={0} stroke={C.muted} strokeDasharray="3 3" />
               <ReferenceLine y={0} stroke={C.muted} strokeDasharray="3 3" />
-              <Tooltip contentStyle={ttStyle} formatter={(v)=>v.toFixed(2)+'σ'} />
+              <Tooltip contentStyle={ttStyle} itemStyle={ttItem} labelStyle={ttLabel} cursor={{fill:'rgba(255,255,255,0.05)'}} formatter={(v)=>v.toFixed(2)+'σ'} />
               <Scatter data={scatterData} fill={sp.colorA} fillOpacity={0.8} r={5} />
             </ScatterChart>
           </ResponsiveContainer>
           <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:4}}>Daily Returns Scatter — z-score (x: {sp.labelA}, y: {sp.labelB})</div>
+          <div className="insight">
+            {SCATTER_NOTES[sp.key]?.(currentPairCorr)||'선택된 페어의 해석 데이터가 준비 중입니다.'}
+          </div>
         </div>
 
         <div className="card">
           <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Correlation Coefficients</div>
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={280}>
             <BarChart data={barData} layout="vertical" margin={{top:5,right:24,left:8,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} horizontal={false} />
               <XAxis type="number" domain={[-1,1]} tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} />
               <YAxis type="category" dataKey="name" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} width={88} />
               <ReferenceLine x={0} stroke={C.muted} />
-              <Tooltip contentStyle={ttStyle} formatter={(v)=>v.toFixed(3)} />
-              <Bar dataKey="value" radius={[0,4,4,0]} barSize={20}>
+              <Tooltip contentStyle={ttStyle} itemStyle={ttItem} labelStyle={ttLabel} formatter={(v)=>v.toFixed(3)} />
+              <Bar dataKey="value" radius={[0,4,4,0]} barSize={18}>
                 {barData.map((d,i)=><Cell key={i} fill={d.color} fillOpacity={0.85} />)}
               </Bar>
             </BarChart>
@@ -601,6 +648,20 @@ function App(){
                 <span style={{fontSize:10,color:C.muted}}>{l}</span>
               </div>
             ))}
+          </div>
+          <div className="insight">
+            {(()=>{
+              const strong=barData.filter(d=>Math.abs(d.value)>0.7);
+              const mod=barData.filter(d=>Math.abs(d.value)>0.3&&Math.abs(d.value)<=0.7);
+              if(strong.length>0){
+                const s=strong[0];
+                return `가장 강한 상관: ${s.name} (r=${s.value.toFixed(3)}) — ${Math.abs(s.value)>0.85?'매우 강한':'강한'} ${s.value>0?'정':'역'}상관. ${strong.length>1?`외 ${strong.length-1}개 페어도 강한 상관 관계.`:''}`;
+              }
+              if(mod.length>0){
+                return `현재 중간 수준(|r|>0.3) 상관 페어 ${mod.length}개. 최강: ${topCorr.name} r=${topCorr.value.toFixed(3)}. 분쟁 초기 또는 복합 요인 혼재 구간에서 나타나는 패턴입니다.`;
+              }
+              return `전반적으로 상관이 약한 상태(|r|<0.3). 단기 노이즈가 지배적이거나 각 자산의 고유 요인이 분쟁 영향을 상쇄하는 구간입니다.`;
+            })()}
           </div>
         </div>
       </div>
@@ -630,8 +691,8 @@ function App(){
                 <td className={r.chgBrent==null?'':r.chgBrent>=0?'up':'dn'}>{r.chgBrent!=null?fmtPct(r.chgBrent):'—'}</td>
                 <td>{fmtNum(r.gold,0)}</td>
                 <td className={r.chgGold==null?'':r.chgGold>=0?'up':'dn'}>{r.chgGold!=null?fmtPct(r.chgGold):'—'}</td>
-                <td>{fmtNum(r.spx,1)}</td>
-                <td className={r.chgSpx==null?'':r.chgSpx>=0?'up':'dn'}>{r.chgSpx!=null?fmtPct(r.chgSpx):'—'}</td>
+                <td>{fmtNum(r.sp500,1)}</td>
+                <td className={r.chgSp500==null?'':r.chgSp500>=0?'up':'dn'}>{r.chgSp500!=null?fmtPct(r.chgSp500):'—'}</td>
                 <td>{fmtNum(r.kospi,1)}</td>
                 <td className={r.chgKospi==null?'':r.chgKospi>=0?'up':'dn'}>{r.chgKospi!=null?fmtPct(r.chgKospi):'—'}</td>
               </tr>
@@ -675,6 +736,28 @@ function App(){
           </div>
 
           <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.sp500,marginBottom:4}}>S&P500 ↔ KOSPI (r = {corrSK.toFixed(3)})</div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+              {corrSK>0.5
+                ?'S&P500-KOSPI 강한 동조화. 미국발 위험자산 동반 매도 국면 — 이란 리스크가 글로벌 주식 시장에 전이. 한국 증시는 미국 증시 대비 1.2~1.5배 변동성 확대 경향(고베타)이 있습니다.'
+                :corrSK>0.2
+                ?'S&P500-KOSPI 중간 수준 동조화. 미국 증시 영향을 받으나 환율·수출 등 한국 고유 요인도 작용 중입니다.'
+                :'S&P500-KOSPI 동조 약함. 이란 분쟁의 직접 영향(원유 수입·환율)이 미국 증시 영향을 압도하는 디커플링 구간입니다.'}
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontSize:12,fontWeight:600,color:C.sp500,marginBottom:4}}>S&P500 ↔ WTI (r = {corrSW.toFixed(3)})</div>
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
+              {corrSW<-0.3
+                ?'유가 상승 → S&P500 하락 역상관. 에너지 비용 급등이 미국 기업 이익 훼손으로 전달 중. 이란 공급 충격의 미국 시장 파급을 보여주는 패턴입니다.'
+                :corrSW>0.3
+                ?'유가-S&P500 동반 상승. 경기 확장 기대가 두 지표를 함께 견인하는 리스크 온 국면입니다.'
+                :'유가-S&P500 상관 불명확. 에너지 섹터 긍정 효과와 전체 시장 비용 부담이 상쇄되는 구간일 수 있습니다.'}
+            </div>
+          </div>
+
+          <div>
             <div style={{fontSize:12,fontWeight:600,color:C.gold,marginBottom:4}}>Gold ↔ WTI (r = {corrGW.toFixed(3)})</div>
             <div style={{fontSize:12,color:C.muted,lineHeight:1.7}}>
               {corrGW>0.5
@@ -708,7 +791,7 @@ function App(){
 
       {/* Footer */}
       <div style={{textAlign:'center',fontSize:11,color:'#475569',padding:'16px 0'}}>
-        Data: open.er-api.com · Yahoo Finance (WTI CL=F · Brent BZ=F · Gold GC=F · KOSPI ^KS11) · 5min auto-refresh
+        Data: Yahoo Finance (KRW=X · WTI CL=F · Brent BZ=F · Gold GC=F · S&P500 ^GSPC · KOSPI ^KS11) · 5min auto-refresh
       </div>
     </div>
   );
