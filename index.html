@@ -184,14 +184,14 @@ function App(){
   const fetchAll=useCallback(async()=>{
     setStatus('Fetching...');
     try{
-      const [krwRate,wtiRes,kospiRes,goldRes,brentRes]=await Promise.allSettled([
-        fetchKRW(),
+      const [krwRes,wtiRes,kospiRes,goldRes,brentRes]=await Promise.allSettled([
+        fetchYahoo('KRW%3DX'),
         fetchYahoo('CL%3DF'),
         fetchYahoo('%5EKS11'),
         fetchYahoo('GC%3DF'),
         fetchYahoo('BZ%3DF'),
       ]);
-      const krwVal  =krwRate.status==='fulfilled'?krwRate.value:null;
+      const krwData =krwRes.status==='fulfilled'?krwRes.value:null;
       const wtiData =wtiRes.status==='fulfilled'?wtiRes.value:null;
       const kospiData=kospiRes.status==='fulfilled'?kospiRes.value:null;
       const goldData =goldRes.status==='fulfilled'?goldRes.value:null;
@@ -204,9 +204,11 @@ function App(){
           const e=dateMap.get(h.date);
           if(e) e.kospi=h.close; else dateMap.set(h.date,{kospi:h.close});
         }
+        if(krwData?.history)   for(const h of krwData.history)  {const e=dateMap.get(h.date);if(e)e.krw=h.close;}
         if(goldData?.history)  for(const h of goldData.history) {const e=dateMap.get(h.date);if(e)e.gold=h.close;}
         if(brentData?.history) for(const h of brentData.history){const e=dateMap.get(h.date);if(e)e.brent=h.close;}
 
+        const fallKrw  =FALLBACK_KRW[FALLBACK_KRW.length-1];
         const fallGold =FALLBACK_GOLD[FALLBACK_GOLD.length-1];
         const fallBrent=FALLBACK_BRENT[FALLBACK_BRENT.length-1];
         const merged=[...dateMap.entries()]
@@ -214,14 +216,14 @@ function App(){
           .sort(([a],[b])=>a.localeCompare(b))
           .map(([date,v])=>({
             date,
-            krw:krwVal||FALLBACK_KRW[FALLBACK_KRW.length-1],
+            krw:v.krw||fallKrw,
             wti:v.wti, kospi:v.kospi,
             gold:v.gold||fallGold,
             brent:v.brent||fallBrent,
           }));
         if(merged.length>=3){
           const last=merged[merged.length-1];
-          if(krwVal)           last.krw=krwVal;
+          if(krwData?.current)   last.krw=krwData.current;
           if(goldData?.current)  last.gold=goldData.current;
           if(brentData?.current) last.brent=brentData.current;
           setData(merged);
@@ -233,7 +235,7 @@ function App(){
       // partial fallback
       const fb=buildFallback();
       const last=fb[fb.length-1];
-      if(krwVal)            last.krw=krwVal;
+      if(krwData?.current)  last.krw=krwData.current;
       if(wtiData?.current)  last.wti=wtiData.current;
       if(kospiData?.current)last.kospi=kospiData.current;
       if(goldData?.current) last.gold=goldData.current;
