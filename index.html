@@ -262,7 +262,7 @@ function App(){
         fetchYahoo('KRW%3DX'),
         fetchYahoo('CL%3DF'),
         fetchYahoo('%5EKS11'),
-        fetchYahoo('GC%3DF'),
+        fetchYahoo('XAUUSD%3DX'),
         fetchYahoo('BZ%3DF'),
         fetchYahoo('%5EGSPC'),
       ]);
@@ -280,10 +280,27 @@ function App(){
           const e=dateMap.get(h.date);
           if(e) e.kospi=h.close; else dateMap.set(h.date,{kospi:h.close});
         }
-        if(krwData?.history)   for(const h of krwData.history)  {const e=dateMap.get(h.date);if(e)e.krw=h.close;}
-        if(goldData?.history)  for(const h of goldData.history) {const e=dateMap.get(h.date);if(e)e.gold=h.close;}
-        if(brentData?.history) for(const h of brentData.history){const e=dateMap.get(h.date);if(e)e.brent=h.close;}
-        if(sp500Data?.history) for(const h of sp500Data.history){const e=dateMap.get(h.date);if(e)e.sp500=h.close;}
+        // nearest-date merge: for each history point, try exact date then ±1 day
+        function mergeNearest(history,field){
+          if(!history) return;
+          const sorted=[...dateMap.keys()].sort();
+          for(const h of history){
+            if(h.close==null) continue;
+            // Try exact, then next day, then prev day
+            const candidates=[h.date,
+              new Date(new Date(h.date).getTime()+86400000).toISOString().slice(0,10),
+              new Date(new Date(h.date).getTime()-86400000).toISOString().slice(0,10),
+            ];
+            for(const d of candidates){
+              const e=dateMap.get(d);
+              if(e&&e[field]==null){e[field]=h.close;break;}
+            }
+          }
+        }
+        mergeNearest(krwData?.history,  'krw');
+        mergeNearest(goldData?.history, 'gold');
+        mergeNearest(brentData?.history,'brent');
+        mergeNearest(sp500Data?.history,'sp500');
 
         const fallKrw  =FALLBACK_KRW[FALLBACK_KRW.length-1];
         const fallGold =FALLBACK_GOLD[FALLBACK_GOLD.length-1];
