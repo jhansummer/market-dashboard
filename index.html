@@ -68,7 +68,7 @@ const CORS_PROXIES=[
   u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u),
 ];
 async function fetchYahoo(symbol){
-  const target='https://query1.finance.yahoo.com/v8/finance/chart/'+symbol+'?range=1mo&interval=1d';
+  const target='https://query1.finance.yahoo.com/v8/finance/chart/'+symbol+'?range=3mo&interval=1d';
   for(const proxy of CORS_PROXIES){
     try{
       const r=await fetch(proxy(target));
