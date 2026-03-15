@@ -292,12 +292,13 @@ function App(){
   const chgGold =(latest.gold -prev.gold )/prev.gold *100;
   const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
 
+  // scatter data (z-score normalized returns for equal axis scale)
   const scatterData=useMemo(()=>{
     const sp=SCATTER_PAIRS[scatterPair];
     const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent};
     const [ka,kb]=sp.key.split('_');
-    const retA=map[ka], retB=map[kb];
-    return retA.map((v,i)=>({x:v,y:retB[i]||0})).filter(d=>!isNaN(d.x)&&!isNaN(d.y));
+    const zA=zScore(map[ka]), zB=zScore(map[kb]);
+    return zA.map((v,i)=>({x:v,y:zB[i]||0})).filter(d=>!isNaN(d.x)&&!isNaN(d.y));
   },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent]);
 
   const barData=[
@@ -435,15 +436,15 @@ function App(){
           <ResponsiveContainer width="100%" height={220}>
             <ScatterChart margin={{top:5,right:10,left:0,bottom:5}}>
               <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
-              <XAxis type="number" dataKey="x" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelA} unit="%" />
-              <YAxis type="number" dataKey="y" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelB} unit="%" />
+              <XAxis type="number" dataKey="x" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelA} unit="σ" />
+              <YAxis type="number" dataKey="y" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} name={sp.labelB} unit="σ" />
               <ReferenceLine x={0} stroke={C.muted} strokeDasharray="3 3" />
               <ReferenceLine y={0} stroke={C.muted} strokeDasharray="3 3" />
-              <Tooltip contentStyle={ttStyle} formatter={(v)=>v.toFixed(2)+'%'} />
+              <Tooltip contentStyle={ttStyle} formatter={(v)=>v.toFixed(2)+'σ'} />
               <Scatter data={scatterData} fill={sp.colorA} fillOpacity={0.8} r={5} />
             </ScatterChart>
           </ResponsiveContainer>
-          <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:4}}>Daily Returns Scatter — x: {sp.labelA} / y: {sp.labelB}</div>
+          <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:4}}>Daily Returns Scatter — z-score (x: {sp.labelA}, y: {sp.labelB})</div>
         </div>
 
         <div className="card">
