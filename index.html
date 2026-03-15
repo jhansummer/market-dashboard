@@ -388,19 +388,39 @@ function App(){
   const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
   const chgSp500=(latest.sp500-prev.sp500)/prev.sp500*100;
 
-  // ── KOSPI Prediction via OLS ──
+  // ── KOSPI Prediction via OLS (Model 4: 당일환율 + 전일US 시차) ──
+  // retX[i] = day i return. For lag: use retX[i-1] as predictor for retKospi[i].
+  // Features: same_krw(t), lag1_krw(t-1), lag1_wti(t-1), lag1_gold(t-1), lag1_brent(t-1), lag1_spx(t-1)
   const prediction=useMemo(()=>{
-    if(retKrw.length<5) return null;
-    const ols=olsRegression([retKrw,retWti,retGold,retBrent,retSp500],retKospi);
+    const n=retKospi.length;
+    if(n<7) return null;
+    // Build lagged arrays: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
+    const yArr=[],xKrw=[],xLKrw=[],xLWti=[],xLGold=[],xLBrent=[],xLSp500=[];
+    for(let i=1;i<n;i++){
+      yArr.push(retKospi[i]);
+      xKrw.push(retKrw[i]);
+      xLKrw.push(retKrw[i-1]);
+      xLWti.push(retWti[i-1]);
+      xLGold.push(retGold[i-1]);
+      xLBrent.push(retBrent[i-1]);
+      xLSp500.push(retSp500[i-1]);
+    }
+    const ols=olsRegression([xKrw,xLKrw,xLWti,xLGold,xLBrent,xLSp500],yArr);
     if(!ols) return null;
-    const vals=[chgKrw,chgWti,chgGold,chgBrent,chgSp500];
-    const predReturn=ols.intercept + ols.beta.reduce((s,b,i)=>s+b*vals[i],0);
+    const todayVals=[chgKrw, retKrw[n-1], retWti[n-1], retGold[n-1], retBrent[n-1], retSp500[n-1]];
+    const predReturn=ols.intercept + ols.beta.reduce((s,b,i)=>s+b*todayVals[i],0);
     const predKospi=latest.kospi*(1+predReturn/100);
-    const labels=['USD/KRW','WTI','Gold','Brent','S&P500'];
-    const contributions=ols.beta.map((b,i)=>({label:labels[i], beta:b, contrib:b*vals[i]}));
+    const labels=['당일 환율','전일 환율','전일 WTI','전일 Gold','전일 Brent','전일 S&P500'];
+    const contributions=ols.beta.map((b,i)=>({label:labels[i], beta:b, contrib:b*todayVals[i]}));
     contributions.sort((a,b)=>Math.abs(b.contrib)-Math.abs(a.contrib));
-    return {predReturn, predKospi, r2:ols.r2, contributions};
-  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
+    let dirHit=0;
+    for(let i=0;i<yArr.length;i++){
+      const p=ols.intercept+ols.beta[0]*xKrw[i]+ols.beta[1]*xLKrw[i]+ols.beta[2]*xLWti[i]+ols.beta[3]*xLGold[i]+ols.beta[4]*xLBrent[i]+ols.beta[5]*xLSp500[i];
+      if((p>0)===(yArr[i]>0)) dirHit++;
+    }
+    const dirAcc=dirHit/yArr.length;
+    return {predReturn, predKospi, r2:ols.r2, contributions, dirAcc};
+  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,latest]);
 
   // scatter data (z-score normalized returns)
   const scatterData=useMemo(()=>{
@@ -497,7 +517,7 @@ function App(){
         <div className="card" style={{marginBottom:12,borderTop:`3px solid ${C.blue}`,position:'relative'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
             <div>
-              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>KOSPI 예상 지수 (회귀 모델)</div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>KOSPI 예상 지수 (시차 회귀 모델)</div>
               <div style={{fontSize:28,fontWeight:800,color:C.text}}>{prediction.predKospi.toFixed(1)}</div>
               <div style={{fontSize:14,fontWeight:700,color:prediction.predReturn>=0?C.up:C.dn,marginTop:2}}>
                 {prediction.predReturn>=0?'▲':'▼'} {Math.abs(prediction.predReturn).toFixed(3)}%
@@ -505,12 +525,13 @@ function App(){
               </div>
             </div>
             <div style={{textAlign:'right'}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:2}}>Model R²</div>
-              <div style={{fontSize:18,fontWeight:800,color:prediction.r2>0.5?C.emerald:prediction.r2>0.2?'#eab308':C.muted}}>{(prediction.r2*100).toFixed(1)}%</div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:2}}>방향 적중률</div>
+              <div style={{fontSize:18,fontWeight:800,color:prediction.dirAcc>0.7?C.emerald:prediction.dirAcc>0.55?'#eab308':C.muted}}>{(prediction.dirAcc*100).toFixed(0)}%</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:4}}>R² {(prediction.r2*100).toFixed(1)}%</div>
             </div>
           </div>
-          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>기여도 (오늘 변동 × 회귀계수)</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:6}}>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>기여도 (변동 × 회귀계수)</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
             {prediction.contributions.map(c=>(
               <div key={c.label} style={{background:C.bg,borderRadius:6,padding:'6px 8px',textAlign:'center'}}>
                 <div style={{fontSize:10,color:C.muted,marginBottom:2}}>{c.label}</div>
@@ -520,7 +541,7 @@ function App(){
             ))}
           </div>
           <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.4}}>
-            * 최근 1개월 일별 수익률 기반 다중회귀 (OLS). 예측은 참고용이며 투자 판단의 근거로 사용하지 마세요.
+            * 당일 환율 + 전일 미국시장(S&P500·WTI·Gold·Brent) 시차 반영 OLS. 장 개시 전 예측용 참고 지표입니다.
           </div>
         </div>
       )}
