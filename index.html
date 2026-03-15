@@ -137,6 +137,55 @@ function corrLabel(r){
   return 'Weak';
 }
 
+// ── OLS multiple regression ──
+// returns {beta: number[], r2: number, intercept: number}
+// y = intercept + beta[0]*X[0] + beta[1]*X[1] + ...
+function olsRegression(Xs, y){
+  const n=y.length;
+  const k=Xs.length; // number of predictors
+  if(n<k+2) return null;
+  // Build X matrix with intercept column
+  // Using normal equations: beta = (X'X)^-1 X'y
+  const cols=k+1; // +1 for intercept
+  // X'X
+  const XtX=Array.from({length:cols},()=>new Float64Array(cols));
+  const Xty=new Float64Array(cols);
+  for(let i=0;i<n;i++){
+    const row=[1,...Xs.map(x=>x[i])];
+    for(let a=0;a<cols;a++){
+      for(let b=0;b<cols;b++) XtX[a][b]+=row[a]*row[b];
+      Xty[a]+=row[a]*y[i];
+    }
+  }
+  // Gauss-Jordan to invert XtX and solve
+  const aug=XtX.map((r,i)=>{const row=new Float64Array(cols*2);for(let j=0;j<cols;j++)row[j]=r[j];row[cols+i]=1;return row;});
+  for(let p=0;p<cols;p++){
+    let maxR=p;
+    for(let r=p+1;r<cols;r++) if(Math.abs(aug[r][p])>Math.abs(aug[maxR][p])) maxR=r;
+    [aug[p],aug[maxR]]=[aug[maxR],aug[p]];
+    const piv=aug[p][p]; if(Math.abs(piv)<1e-12) return null;
+    for(let j=0;j<cols*2;j++) aug[p][j]/=piv;
+    for(let r=0;r<cols;r++){
+      if(r===p) continue;
+      const f=aug[r][p];
+      for(let j=0;j<cols*2;j++) aug[r][j]-=f*aug[p][j];
+    }
+  }
+  const inv=aug.map(r=>Array.from(r.slice(cols)));
+  const beta=new Float64Array(cols);
+  for(let a=0;a<cols;a++) for(let b=0;b<cols;b++) beta[a]+=inv[a][b]*Xty[b];
+  // R²
+  const my=y.reduce((a,b)=>a+b,0)/n;
+  let ssTot=0,ssRes=0;
+  for(let i=0;i<n;i++){
+    const pred=beta[0]+Xs.reduce((s,x,j)=>s+beta[j+1]*x[i],0);
+    ssRes+=(y[i]-pred)**2;
+    ssTot+=(y[i]-my)**2;
+  }
+  const r2=ssTot===0?0:1-ssRes/ssTot;
+  return {intercept:beta[0], beta:Array.from(beta).slice(1), r2};
+}
+
 function fmtNum(v,d=1){return v==null?'—':v.toFixed(d)}
 function fmtPct(v){return v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%'}
 
@@ -302,6 +351,27 @@ function App(){
   const chgGold =(latest.gold -prev.gold )/prev.gold *100;
   const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
 
+  // ── KOSPI Prediction via OLS ──
+  const prediction=useMemo(()=>{
+    if(retKrw.length<5) return null;
+    const ols=olsRegression([retKrw,retWti,retGold,retBrent],retKospi);
+    if(!ols) return null;
+    // Today's changes in predictors (latest vs prev)
+    const todayKrw =chgKrw;
+    const todayWti =chgWti;
+    const todayGold=chgGold;
+    const todayBrent=chgBrent;
+    const predReturn=ols.intercept + ols.beta[0]*todayKrw + ols.beta[1]*todayWti + ols.beta[2]*todayGold + ols.beta[3]*todayBrent;
+    const predKospi=latest.kospi*(1+predReturn/100);
+    const labels=['USD/KRW','WTI','Gold','Brent'];
+    const contributions=ols.beta.map((b,i)=>{
+      const vals=[todayKrw,todayWti,todayGold,todayBrent];
+      return {label:labels[i], beta:b, contrib:b*vals[i]};
+    });
+    contributions.sort((a,b)=>Math.abs(b.contrib)-Math.abs(a.contrib));
+    return {predReturn, predKospi, r2:ols.r2, intercept:ols.intercept, beta:ols.beta, contributions};
+  },[retKrw,retWti,retGold,retBrent,retKospi,chgKrw,chgWti,chgGold,chgBrent,latest]);
+
   // scatter data (z-score normalized returns for equal axis scale)
   const scatterData=useMemo(()=>{
     const sp=SCATTER_PAIRS[scatterPair];
@@ -372,6 +442,39 @@ function App(){
         <MetricCard title="Gold"       value={latest.gold}  change={chgGold}  color={C.gold}    prefix="$" decimals={0} />
         <MetricCard title="KOSPI"      value={latest.kospi} change={chgKospi} color={C.blue}    decimals={1} />
       </div>
+
+      {/* KOSPI Prediction Card */}
+      {prediction && (
+        <div className="card" style={{marginBottom:12,borderTop:`3px solid ${C.blue}`,position:'relative'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+            <div>
+              <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:4}}>KOSPI 예상 지수 (회귀 모델)</div>
+              <div style={{fontSize:28,fontWeight:800,color:C.text}}>{prediction.predKospi.toFixed(1)}</div>
+              <div style={{fontSize:14,fontWeight:700,color:prediction.predReturn>=0?C.up:C.dn,marginTop:2}}>
+                {prediction.predReturn>=0?'▲':'▼'} {Math.abs(prediction.predReturn).toFixed(3)}%
+                <span style={{fontSize:11,color:C.muted,fontWeight:500,marginLeft:8}}>vs 전일 {latest.kospi.toFixed(1)}</span>
+              </div>
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:10,color:C.muted,marginBottom:2}}>Model R²</div>
+              <div style={{fontSize:18,fontWeight:800,color:prediction.r2>0.5?C.emerald:prediction.r2>0.2?'#eab308':C.muted}}>{(prediction.r2*100).toFixed(1)}%</div>
+            </div>
+          </div>
+          <div style={{fontSize:11,fontWeight:600,color:C.muted,marginBottom:6}}>기여도 (오늘 변동 × 회귀계수)</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+            {prediction.contributions.map(c=>(
+              <div key={c.label} style={{background:C.bg,borderRadius:6,padding:'6px 8px',textAlign:'center'}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:2}}>{c.label}</div>
+                <div style={{fontSize:13,fontWeight:700,color:c.contrib>=0?C.up:C.dn}}>{c.contrib>=0?'+':''}{c.contrib.toFixed(3)}%</div>
+                <div style={{fontSize:9,color:C.muted}}>β={c.beta.toFixed(3)}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.4}}>
+            * 최근 1개월 일별 수익률 기반 다중회귀 (OLS). 예측은 참고용이며 투자 판단의 근거로 사용하지 마세요.
+          </div>
+        </div>
+      )}
 
       {/* Iran Context Banner */}
       <div className="card" style={{borderLeft:`3px solid ${C.dn}`,borderTop:'none',marginBottom:12,padding:'12px 16px'}}>
