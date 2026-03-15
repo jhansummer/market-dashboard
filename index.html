@@ -184,7 +184,7 @@ function App(){
         if(merged.length>=3){
           if(krwVal) merged[merged.length-1].krw=krwVal;
           setData(merged);
-          setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR'));
+          setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
           setCountdown(300);
           return;
         }
@@ -196,7 +196,7 @@ function App(){
       if(wtiData?.current)last.wti=wtiData.current;
       if(kospiData?.current)last.kospi=kospiData.current;
       setData(fb);
-      setStatus('Partial data · '+new Date().toLocaleTimeString('ko-KR'));
+      setStatus('Partial data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
       setCountdown(300);
     }catch{
       setData(buildFallback());
