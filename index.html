@@ -34,7 +34,7 @@ button:hover{opacity:0.85}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useCallback,useMemo,useRef}=React;
-const {AreaChart,Area,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,ScatterChart,Scatter,BarChart,Bar,Cell,ReferenceLine}=Recharts;
+const {AreaChart,Area,LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ScatterChart,Scatter,BarChart,Bar,Cell,ReferenceLine}=Recharts;
 
 // ── Colors ──
 const C={
@@ -422,6 +422,55 @@ function App(){
     return {predReturn, predKospi, r2:ols.r2, contributions, dirAcc};
   },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
 
+  // ── Walk-forward Backtest (lagged OLS) ──
+  // Same model as prediction: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
+  const backtest=useMemo(()=>{
+    const n=retKospi.length;
+    const minTrain=6; // need enough rows for lagged dataset
+    const laggedN=n-1; // lagged dataset has n-1 rows
+    if(laggedN<minTrain+1) return null;
+    // Build full lagged arrays
+    const lxKrw  =retKrw.slice(1);
+    const lxLKrw =retKrw.slice(0,n-1);
+    const lxLWti =retWti.slice(0,n-1);
+    const lxLGold=retGold.slice(0,n-1);
+    const lxLBrent=retBrent.slice(0,n-1);
+    const lxLSp500=retSp500.slice(0,n-1);
+    const lagY   =retKospi.slice(1);
+    const rows=[];
+    for(let j=minTrain;j<laggedN;j++){
+      const trainXs=[
+        lxKrw.slice(0,j), lxLKrw.slice(0,j),
+        lxLWti.slice(0,j), lxLGold.slice(0,j),
+        lxLBrent.slice(0,j), lxLSp500.slice(0,j),
+      ];
+      const ols=olsRegression(trainXs,lagY.slice(0,j));
+      if(!ols) continue;
+      const xToday=[lxKrw[j],lxLKrw[j],lxLWti[j],lxLGold[j],lxLBrent[j],lxLSp500[j]];
+      const predRet=ols.intercept+ols.beta.reduce((s,b,k)=>s+b*xToday[k],0);
+      const actRet=lagY[j];
+      // lagY[j] = retKospi[j+1] = return from kospiArr[j+1] -> kospiArr[j+2]
+      const baseLevel=kospiArr[j+1];
+      const predLevel=baseLevel*(1+predRet/100);
+      const actLevel=kospiArr[j+2];
+      if(actLevel==null||isNaN(actLevel)) continue;
+      const date=dates[j+2]?.slice(5)||'';
+      rows.push({date,predRet,actRet,predLevel,actLevel,
+        err:predLevel-actLevel,
+        pctErr:(predLevel-actLevel)/actLevel*100,
+        correct:(predRet>=0)===(actRet>=0),
+      });
+    }
+    if(!rows.length) return null;
+    const m=rows.length;
+    const mae=rows.reduce((s,r)=>s+Math.abs(r.err),0)/m;
+    const maePct=rows.reduce((s,r)=>s+Math.abs(r.pctErr),0)/m;
+    const rmse=Math.sqrt(rows.reduce((s,r)=>s+r.err**2,0)/m);
+    const dirAcc=rows.filter(r=>r.correct).length/m*100;
+    const corrPL=pearson(rows.map(r=>r.predLevel),rows.map(r=>r.actLevel));
+    return {rows,mae,maePct,rmse,dirAcc,corrPL,trainSize:minTrain};
+  },[data,retKrw,retWti,retGold,retBrent,retSp500,retKospi,kospiArr,dates]);
+
   // scatter data (z-score normalized returns)
   const scatterData=useMemo(()=>{
     const sp=SCATTER_PAIRS[scatterPair];
@@ -542,6 +591,98 @@ function App(){
           </div>
           <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.4}}>
             * 당일 환율 + 최신 미국시장(S&P500·WTI·Gold·Brent) 실시간 반영 OLS. 5분마다 갱신. 참고용 지표입니다.
+          </div>
+        </div>
+      )}
+
+      {/* Backtest Card */}
+      {backtest && (
+        <div className="card" style={{marginBottom:12,borderTop:'3px solid #6366f1'}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>백테스트 — Walk-forward Out-of-Sample</div>
+          <div style={{fontSize:11,color:C.muted,marginBottom:14}}>
+            최초 {backtest.trainSize}일 학습 → 이후 {backtest.rows.length}일 순차 예측 (매 회차 학습 데이터 누적 확장)
+          </div>
+
+          {/* Metric summary */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}}>
+            {[
+              {label:'방향 정확도',
+               value:backtest.dirAcc.toFixed(0)+'%',
+               color:backtest.dirAcc>=60?C.emerald:backtest.dirAcc>=50?'#eab308':C.dn,
+               sub:`${backtest.rows.filter(r=>r.correct).length}/${backtest.rows.length}회 적중`},
+              {label:'평균 절대 오차',
+               value:backtest.mae.toFixed(1)+'pt',
+               color:C.muted,
+               sub:`MAE% ${backtest.maePct.toFixed(2)}%`},
+              {label:'RMSE',
+               value:backtest.rmse.toFixed(1)+'pt',
+               color:C.muted,
+               sub:'Root Mean Sq. Error'},
+              {label:'예측↔실제 상관',
+               value:backtest.corrPL.toFixed(3),
+               color:corrColor(backtest.corrPL),
+               sub:corrLabel(backtest.corrPL)},
+            ].map(m=>(
+              <div key={m.label} style={{background:C.bg,borderRadius:8,padding:'10px 12px',textAlign:'center'}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>{m.label}</div>
+                <div style={{fontSize:18,fontWeight:800,color:m.color}}>{m.value}</div>
+                <div style={{fontSize:10,color:C.muted,marginTop:2}}>{m.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Actual vs Predicted chart */}
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={backtest.rows} margin={{top:5,right:10,left:0,bottom:5}}>
+              <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+              <XAxis dataKey="date" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} interval="preserveStartEnd" />
+              <YAxis tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} domain={['auto','auto']} tickFormatter={v=>v.toFixed(0)} width={52} />
+              <Tooltip contentStyle={ttStyle} itemStyle={ttItem} labelStyle={ttLabel}
+                formatter={(v,n)=>[v.toFixed(1)+'pt', n==='actLevel'?'실제 KOSPI':'예측 KOSPI']} />
+              <Legend formatter={n=>n==='actLevel'?'실제 KOSPI':'예측 KOSPI'} wrapperStyle={{fontSize:11,color:C.muted}} />
+              <Line type="monotone" dataKey="actLevel"  stroke={C.blue}   strokeWidth={2.5} dot={{r:3,fill:C.blue}}   name="actLevel" />
+              <Line type="monotone" dataKey="predLevel" stroke='#818cf8'  strokeWidth={2}   dot={{r:3,fill:'#818cf8'}} name="predLevel" strokeDasharray="5 3" />
+            </LineChart>
+          </ResponsiveContainer>
+
+          {/* Per-day error table */}
+          <div style={{overflowX:'auto',marginTop:14}}>
+            <table>
+              <thead><tr>
+                <th>날짜</th>
+                <th>예측 지수</th>
+                <th>실제 지수</th>
+                <th>오차 (pt)</th>
+                <th>오차 (%)</th>
+                <th>방향</th>
+              </tr></thead>
+              <tbody>
+                {backtest.rows.map(r=>(
+                  <tr key={r.date}>
+                    <td style={{color:C.text,fontWeight:500}}>{r.date}</td>
+                    <td style={{color:'#a78bfa'}}>{r.predLevel.toFixed(1)}</td>
+                    <td>{r.actLevel.toFixed(1)}</td>
+                    <td className={r.err<0?'up':'dn'}>{r.err>0?'+':''}{r.err.toFixed(1)}</td>
+                    <td className={Math.abs(r.pctErr)<2?'up':'dn'}>{r.pctErr>0?'+':''}{r.pctErr.toFixed(2)}%</td>
+                    <td style={{color:r.correct?C.emerald:C.dn,fontWeight:700}}>{r.correct?'✓':'✗'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="insight">
+            {(()=>{
+              const {dirAcc,maePct,corrPL,rows}=backtest;
+              const n=rows.length;
+              const bias=rows.reduce((s,r)=>s+r.pctErr,0)/n;
+              const biasStr=`${bias>=0?'+':''}${bias.toFixed(2)}%`;
+              if(dirAcc>=60&&maePct<2)
+                return `방향 ${dirAcc.toFixed(0)}% 적중 + MAE ${maePct.toFixed(2)}% — 실용적 예측력 확인. 예측 평균 편향: ${biasStr}(${bias>0?'과대':'과소'} 추정 경향). 예측↔실제 상관 r=${corrPL.toFixed(3)}.`;
+              if(dirAcc>=60)
+                return `방향 ${dirAcc.toFixed(0)}% 적중으로 방향성은 잡히나, MAE ${maePct.toFixed(2)}%로 수준 오차가 큽니다. 방향 전략 참고용으로 활용하고, 절대 지수 수준은 ±${backtest.rmse.toFixed(0)}pt 오차 감안하세요.`;
+              return `방향 ${dirAcc.toFixed(0)}% — 무작위(50%)와 가깝습니다. 단기 노이즈가 크거나 표본이 짧은 구간입니다. MAE ${maePct.toFixed(2)}%, 상관 r=${corrPL.toFixed(3)}.`;
+            })()}
           </div>
         </div>
       )}
