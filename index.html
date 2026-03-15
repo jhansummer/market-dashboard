@@ -67,6 +67,43 @@ const CORS_PROXIES=[
   u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
   u=>'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u),
 ];
+// ── News fetch ──
+const NEWS_FEEDS=[
+  'https://feeds.reuters.com/reuters/topNews',
+  'https://feeds.bbci.co.uk/news/world/rss.xml',
+  'https://www.aljazeera.com/xml/rss/all.xml',
+];
+const NEWS_KW={
+  critical:['attack','strike','missile','bomb','invasion','escalat','공격','폭격','폭발','침공','airstrike'],
+  high:    ['war','ceasefire','sanction','nuclear','hormuz','휴전','전쟁','제재','핵','호르무즈','봉쇄','blockade','troops','conflict'],
+  medium:  ['iran','opec','crude','oil','이란','유가','중동','분쟁','persian','gulf','khamenei','strait'],
+};
+async function fetchNewsData(){
+  const items=[];
+  for(const feed of NEWS_FEEDS){
+    for(const proxy of CORS_PROXIES){
+      try{
+        const r=await fetch(proxy(feed),{signal:AbortSignal.timeout(5000)});
+        if(!r.ok) continue;
+        const text=await r.text();
+        const xml=new DOMParser().parseFromString(text,'text/xml');
+        for(const el of xml.querySelectorAll('item')){
+          const title=el.querySelector('title')?.textContent?.replace(/<!\[CDATA\[|\]\]>/g,'')||'';
+          const pubDate=el.querySelector('pubDate')?.textContent||'';
+          const low=title.toLowerCase();
+          let level=null;
+          if(NEWS_KW.critical.some(k=>low.includes(k))) level='critical';
+          else if(NEWS_KW.high.some(k=>low.includes(k))) level='high';
+          else if(NEWS_KW.medium.some(k=>low.includes(k))) level='medium';
+          if(level) items.push({title,pubDate,level,time:new Date(pubDate)});
+        }
+        break;
+      }catch{}
+    }
+  }
+  return items.filter(x=>!isNaN(x.time)).sort((a,b)=>b.time-a.time).slice(0,15);
+}
+
 async function fetchYahoo(symbol){
   const target='https://query1.finance.yahoo.com/v8/finance/chart/'+symbol+'?range=3mo&interval=1d';
   for(const proxy of CORS_PROXIES){
@@ -253,10 +290,12 @@ function App(){
   const [countdown,setCountdown]=useState(300);
   const [paused,setPaused]=useState(false);
   const [scatterPair,setScatterPair]=useState(0);
+  const [news,setNews]=useState([]);
   const timerRef=useRef(null);
 
   const fetchAll=useCallback(async()=>{
     setStatus('Fetching...');
+    fetchNewsData().then(items=>{if(items.length) setNews(items);});
     try{
       const [krwRes,wtiRes,kospiRes,goldRes,brentRes,sp500Res]=await Promise.allSettled([
         fetchYahoo('KRW%3DX'),
@@ -508,6 +547,16 @@ function App(){
     return zA.map((v,i)=>({x:v,y:zB[i]||0})).filter(d=>!isNaN(d.x)&&!isNaN(d.y));
   },[scatterPair,retKrw,retWti,retKospi,retGold,retBrent,retSp500]);
 
+  // ── Event risk from news ──
+  const eventRisk=useMemo(()=>{
+    const now=Date.now();
+    const fresh=news.filter(n=>(now-n.time)<4*60*60*1000);
+    if(fresh.some(n=>n.level==='critical')) return 'critical';
+    if(fresh.some(n=>n.level==='high'))     return 'high';
+    if(fresh.some(n=>n.level==='medium'))   return 'medium';
+    return null;
+  },[news]);
+
   const currentPairCorr=useMemo(()=>{
     const sp=SCATTER_PAIRS[scatterPair];
     const map={krw:retKrw,wti:retWti,kospi:retKospi,gold:retGold,brent:retBrent,sp500:retSp500};
@@ -664,7 +713,18 @@ function App(){
                   </div>
                 </div>
 
-                <div style={{fontSize:10,color:C.muted,marginTop:10,lineHeight:1.5}}>
+                {eventRisk&&(
+                  <div style={{marginTop:10,padding:'8px 10px',borderRadius:6,
+                    background:eventRisk==='critical'?'#2d0a0a':eventRisk==='high'?'#1f1200':'#14120a',
+                    border:`1px solid ${eventRisk==='critical'?C.dn:eventRisk==='high'?C.amber:'#ca8a04'}`,
+                    fontSize:11,fontWeight:600,
+                    color:eventRisk==='critical'?C.dn:eventRisk==='high'?C.amber:'#ca8a04'}}>
+                    {eventRisk==='critical'?'🚨 긴급 이벤트 감지 — 신호 신뢰도 매우 낮음. 진입 자제':
+                     eventRisk==='high'?'⚠ 고위험 이벤트 감지 — 신호 신뢰도 낮음. 포지션 축소 권장':
+                     '📰 관련 뉴스 감지 — 추가 확인 후 진입 권장'}
+                  </div>
+                )}
+                <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.5}}>
                   σ = 모델 잔차 표준편차 {residStdPts.toFixed(0)}pt ({residStdPct.toFixed(2)}%) · 신호 강도 {signalZ.toFixed(2)}σ · 예측이 ±1σ 내면 노이즈로 판단
                 </div>
               </div>
@@ -673,6 +733,127 @@ function App(){
 
           <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.4}}>
             * 당일 환율 + 최신 미국시장(S&P500·WTI·Gold·Brent) 실시간 반영 OLS. 5분마다 갱신. 참고용 지표입니다.
+          </div>
+        </div>
+      )}
+
+      {/* WTI Momentum Signal — 유가 움직임 → KOSPI 선행 진입 */}
+      {(()=>{
+        // WTI β on KOSPI from simple linear regression
+        const n=Math.min(retWti.length,retKospi.length);
+        const mw=retWti.slice(0,n).reduce((a,b)=>a+b,0)/n;
+        const mk=retKospi.slice(0,n).reduce((a,b)=>a+b,0)/n;
+        let cov=0,varW=0;
+        for(let i=0;i<n;i++){cov+=(retWti[i]-mw)*(retKospi[i]-mk);varW+=(retWti[i]-mw)**2;}
+        const betaWK=varW>0?cov/varW:0; // KOSPI return per 1% WTI move
+        const expectedKospiChg=chgWti*betaWK;
+        const expectedKospiPt=latest.kospi*expectedKospiChg/100;
+        const absWti=Math.abs(chgWti);
+        // threshold: 1.5% WTI move = meaningful signal
+        const THR=1.5;
+        const triggered=absWti>=THR;
+        const wtiUp=chgWti>0;
+        // if WTI up → KOSPI typically down (negative β for oil importer)
+        const koAction=wtiUp?(betaWK<0?'하락':'상승'):(betaWK<0?'상승':'하락');
+        const etfAction=koAction==='하락'?{name:'KODEX 인버스',code:'114800',color:C.dn}
+                                        :{name:'KODEX KOSPI',code:'069500',color:C.emerald};
+        const barPct=Math.min(absWti/THR/2*100,100); // 0~100%, 50% = threshold
+        const barColor=triggered?(wtiUp?C.dn:C.emerald):'#eab308';
+        return(
+          <div className="card" style={{marginBottom:12,borderTop:`3px solid ${barColor}`}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:2}}>WTI 모멘텀 → KOSPI 선행 신호</div>
+                <div style={{fontSize:11,color:C.muted}}>유가가 먼저 움직이면 KOSPI가 따라온다 · β = {betaWK.toFixed(3)}</div>
+              </div>
+              {triggered&&<div style={{fontSize:13,fontWeight:800,color:barColor,background:barColor+'20',padding:'4px 10px',borderRadius:6}}>
+                {wtiUp?'🔴 WTI 급등':'🟢 WTI 급락'} 신호 발생
+              </div>}
+            </div>
+
+            {/* WTI move bar */}
+            <div style={{marginBottom:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:C.muted,marginBottom:4}}>
+                <span>WTI 당일 변화: <b style={{color:wtiUp?C.dn:C.emerald,fontSize:13}}>{chgWti>=0?'+':''}{chgWti.toFixed(2)}%</b></span>
+                <span>신호 발동 기준: ±{THR}%</span>
+              </div>
+              <div style={{position:'relative',height:8,borderRadius:4,background:C.border}}>
+                <div style={{position:'absolute',left:'50%',top:-2,width:1,height:12,background:C.muted,opacity:0.6}}/>
+                <div style={{
+                  position:'absolute',
+                  left:chgWti<0?`${50-Math.min(absWti/THR/2*100,50)}%`:'50%',
+                  width:`${Math.min(absWti/THR/2*100,50)}%`,
+                  height:'100%',borderRadius:4,
+                  background:triggered?barColor:'#eab308',opacity:0.7,
+                  transition:'all 0.4s',
+                }}/>
+              </div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:C.muted,marginTop:3}}>
+                <span>← WTI 급락 (KOSPI↑)</span><span>WTI 급등 (KOSPI↓) →</span>
+              </div>
+            </div>
+
+            {/* Impact + Action */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div style={{background:C.bg,borderRadius:8,padding:'10px 12px'}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>예상 KOSPI 영향</div>
+                <div style={{fontSize:20,fontWeight:800,color:expectedKospiChg>=0?C.emerald:C.dn}}>
+                  {expectedKospiChg>=0?'+':''}{expectedKospiChg.toFixed(2)}%
+                </div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                  {expectedKospiPt>=0?'+':''}{expectedKospiPt.toFixed(0)}pt ({latest.kospi.toFixed(0)} 기준)
+                </div>
+              </div>
+              <div style={{background:triggered?etfAction.color+'15':C.bg,borderRadius:8,padding:'10px 12px',
+                           border:triggered?`1px solid ${etfAction.color}40`:`1px solid ${C.border}`}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>
+                  {triggered?'추천 포지션':'대기 (미발동)'}
+                </div>
+                <div style={{fontSize:14,fontWeight:800,color:triggered?etfAction.color:C.muted}}>
+                  {triggered?etfAction.name:'—'}
+                </div>
+                <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                  {triggered?`${etfAction.code} · KOSPI ${koAction} 예상`:`WTI ±${THR}% 돌파 시 발동`}
+                </div>
+              </div>
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.5}}>
+              β={betaWK.toFixed(3)} · WTI 1% 상승 시 KOSPI {betaWK.toFixed(2)}% 변화 (과거 {n}일 추정) · 5분마다 갱신 · 참고용
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Real-time News Card */}
+      {news.length>0&&(
+        <div className="card" style={{marginBottom:12,borderTop:`3px solid ${
+          news.some(n=>n.level==='critical'&&Date.now()-n.time<4*3600*1000)?C.dn:
+          news.some(n=>n.level==='high'&&Date.now()-n.time<4*3600*1000)?C.amber:'#334155'}`}}>
+          <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>
+            📡 실시간 관련 뉴스
+            {eventRisk&&<span style={{
+              marginLeft:8,fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:4,
+              background:eventRisk==='critical'?C.dn+'30':eventRisk==='high'?C.amber+'30':'#ca8a0430',
+              color:eventRisk==='critical'?C.dn:eventRisk==='high'?C.amber:'#ca8a04'}}>
+              {eventRisk==='critical'?'🚨 긴급':eventRisk==='high'?'⚠ 고위험':'📰 관련'} 이벤트
+            </span>}
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {news.slice(0,8).map((n,i)=>{
+              const ago=Math.floor((Date.now()-n.time)/60000);
+              const agoStr=ago<60?`${ago}분 전`:ago<1440?`${Math.floor(ago/60)}시간 전`:`${Math.floor(ago/1440)}일 전`;
+              const col=n.level==='critical'?C.dn:n.level==='high'?C.amber:C.muted;
+              return(
+                <div key={i} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'6px 0',
+                  borderBottom:i<news.slice(0,8).length-1?`1px solid ${C.border}`:'none'}}>
+                  <span style={{fontSize:10,color:col,fontWeight:700,minWidth:6,marginTop:2}}>●</span>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,color:C.text,lineHeight:1.5}}>{n.title}</div>
+                    <div style={{fontSize:10,color:C.muted,marginTop:2}}>{agoStr}</div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
