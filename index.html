@@ -301,6 +301,7 @@ function App(){
   const [paused,setPaused]=useState(false);
   const [scatterPair,setScatterPair]=useState(0);
   const [news,setNews]=useState([]);
+  const [dataSource,setDataSource]=useState('fallback'); // 'live'|'partial'|'fallback'
   const timerRef=useRef(null);
 
   const fetchAll=useCallback(async()=>{
@@ -373,24 +374,23 @@ function App(){
           if(brentData?.current) last.brent=brentData.current;
           if(sp500Data?.current) last.sp500=sp500Data.current;
           setData(merged);
+          setDataSource('live');
           setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
           setCountdown(300);
           return;
         }
       }
-      const fb=buildFallback();
-      const last=fb[fb.length-1];
-      if(krwData?.current)  last.krw=krwData.current;
-      if(wtiData?.current)  last.wti=wtiData.current;
-      if(kospiData?.current)last.kospi=kospiData.current;
-      if(goldData?.current) last.gold=goldData.current;
-      if(brentData?.current)last.brent=brentData.current;
-      if(sp500Data?.current)last.sp500=sp500Data.current;
-      setData(fb);
+      // Partial fallback: only current prices available, no reliable history
+      // Do NOT mix live current prices with stale fallback closes — that creates
+      // nonsensical chgX values (e.g. chgWti = -27% because live=$70, fallback=$98)
+      // Keep fallback data as-is so at least the chart/correlations look sane
+      setData(buildFallback());
+      setDataSource('partial');
       setStatus('Partial data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
       setCountdown(300);
     }catch{
       setData(buildFallback());
+      setDataSource('fallback');
       setStatus('API error — using fallback');
       setCountdown(300);
     }
@@ -458,6 +458,7 @@ function App(){
   // Training: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
   // Prediction: use live/latest changes (chgX) instead of stale close-to-close returns
   const prediction=useMemo(()=>{
+    if(dataSource!=='live') return null; // partial/fallback data → chgX meaningless
     const n=retKospi.length;
     if(n<7) return null;
     const yArr=[],xKrw=[],xLKrw=[],xLWti=[],xLGold=[],xLBrent=[],xLSp500=[];
@@ -502,7 +503,7 @@ function App(){
     const sellLevel=latest.kospi-residStdPts;
     return {predReturn, predKospi, r2:ols.r2, contributions, dirAcc,
             residStdPct, residStdPts, signalZ, buyLevel, sellLevel};
-  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
+  },[dataSource,retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
 
   // ── Walk-forward Backtest (lagged OLS) ──
   // Same model as prediction: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
@@ -654,6 +655,16 @@ function App(){
       </div>
 
       {/* KOSPI Prediction Card */}
+      {dataSource!=='live'&&(
+        <div style={{marginBottom:12,padding:'10px 14px',background:'#111827',border:'1px solid #1e293b',
+          borderRadius:8,fontSize:11,color:C.muted,display:'flex',alignItems:'center',gap:8}}>
+          <span style={{color:'#eab308'}}>⚠</span>
+          <span>라이브 히스토리 데이터 수신 대기 중 — 예측 모델 및 WTI 신호는 라이브 데이터 확보 후 표시됩니다</span>
+          <span style={{marginLeft:'auto',color:dataSource==='partial'?'#eab308':C.muted}}>
+            {dataSource==='partial'?'Partial':'Fallback'}
+          </span>
+        </div>
+      )}
       {prediction && (
         <div className="card" style={{marginBottom:12,borderTop:`3px solid ${C.blue}`,position:'relative'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
@@ -753,7 +764,7 @@ function App(){
       )}
 
       {/* WTI Momentum Signal — 유가 움직임 → KOSPI 선행 진입 */}
-      {(()=>{
+      {dataSource==='live'&&(()=>{
         // WTI β on KOSPI from simple linear regression
         const n=Math.min(retWti.length,retKospi.length);
         const mw=retWti.slice(0,n).reduce((a,b)=>a+b,0)/n;
