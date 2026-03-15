@@ -129,7 +129,11 @@ async function fetchYahoo(symbol){
 // ── Math ──
 function calcReturns(arr){
   const r=[];
-  for(let i=1;i<arr.length;i++) r.push((arr[i]-arr[i-1])/arr[i-1]*100);
+  for(let i=1;i<arr.length;i++){
+    const prev=arr[i-1];
+    const ret=(prev&&isFinite(prev)&&isFinite(arr[i]))?(arr[i]-prev)/prev*100:NaN;
+    r.push(ret);
+  }
   return r;
 }
 
@@ -172,13 +176,19 @@ function olsRegression(Xs, y){
   const cols=k+1;
   const XtX=Array.from({length:cols},()=>new Float64Array(cols));
   const Xty=new Float64Array(cols);
+  let validN=0;
   for(let i=0;i<n;i++){
     const row=[1,...Xs.map(x=>x[i])];
+    if(row.some(v=>!isFinite(v))||!isFinite(y[i])) continue; // skip NaN rows
+    validN++;
     for(let a=0;a<cols;a++){
       for(let b=0;b<cols;b++) XtX[a][b]+=row[a]*row[b];
       Xty[a]+=row[a]*y[i];
     }
   }
+  if(validN<cols+1) return null;
+  // Ridge regularization (λ=1e-4) — prevents singular matrix from collinear predictors
+  for(let i=1;i<cols;i++) XtX[i][i]+=1e-4;
   const aug=XtX.map((r,i)=>{const row=new Float64Array(cols*2);for(let j=0;j<cols;j++)row[j]=r[j];row[cols+i]=1;return row;});
   for(let p=0;p<cols;p++){
     let maxR=p;
@@ -460,7 +470,12 @@ function App(){
       xLBrent.push(retBrent[i-1]);
       xLSp500.push(retSp500[i-1]);
     }
-    const ols=olsRegression([xKrw,xLKrw,xLWti,xLGold,xLBrent,xLSp500],yArr);
+    // Filter rows with any NaN/Infinity before regression
+    const allXs=[xKrw,xLKrw,xLWti,xLGold,xLBrent,xLSp500];
+    const valid=yArr.map((_,i)=>isFinite(yArr[i])&&allXs.every(x=>isFinite(x[i])));
+    const cleanY=yArr.filter((_,i)=>valid[i]);
+    const cleanXs=allXs.map(x=>x.filter((_,i)=>valid[i]));
+    const ols=olsRegression(cleanXs,cleanY);
     if(!ols) return null;
     // Use live market changes (updated every 5min) for prediction
     const todayVals=[chgKrw, chgKrw, chgWti, chgGold, chgBrent, chgSp500];
