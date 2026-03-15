@@ -388,13 +388,12 @@ function App(){
   const chgBrent=(latest.brent-prev.brent)/prev.brent*100;
   const chgSp500=(latest.sp500-prev.sp500)/prev.sp500*100;
 
-  // ── KOSPI Prediction via OLS (Model 4: 당일환율 + 전일US 시차) ──
-  // retX[i] = day i return. For lag: use retX[i-1] as predictor for retKospi[i].
-  // Features: same_krw(t), lag1_krw(t-1), lag1_wti(t-1), lag1_gold(t-1), lag1_brent(t-1), lag1_spx(t-1)
+  // ── KOSPI Prediction via OLS (당일환율 + 최신US 시차) ──
+  // Training: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
+  // Prediction: use live/latest changes (chgX) instead of stale close-to-close returns
   const prediction=useMemo(()=>{
     const n=retKospi.length;
     if(n<7) return null;
-    // Build lagged arrays: y=retKospi[i], X=[retKrw[i], retKrw[i-1], retWti[i-1], retGold[i-1], retBrent[i-1], retSp500[i-1]]
     const yArr=[],xKrw=[],xLKrw=[],xLWti=[],xLGold=[],xLBrent=[],xLSp500=[];
     for(let i=1;i<n;i++){
       yArr.push(retKospi[i]);
@@ -407,10 +406,11 @@ function App(){
     }
     const ols=olsRegression([xKrw,xLKrw,xLWti,xLGold,xLBrent,xLSp500],yArr);
     if(!ols) return null;
-    const todayVals=[chgKrw, retKrw[n-1], retWti[n-1], retGold[n-1], retBrent[n-1], retSp500[n-1]];
+    // Use live market changes (updated every 5min) for prediction
+    const todayVals=[chgKrw, chgKrw, chgWti, chgGold, chgBrent, chgSp500];
     const predReturn=ols.intercept + ols.beta.reduce((s,b,i)=>s+b*todayVals[i],0);
     const predKospi=latest.kospi*(1+predReturn/100);
-    const labels=['당일 환율','전일 환율','전일 WTI','전일 Gold','전일 Brent','전일 S&P500'];
+    const labels=['당일 환율','전일 환율','최신 WTI','최신 Gold','최신 Brent','최신 S&P500'];
     const contributions=ols.beta.map((b,i)=>({label:labels[i], beta:b, contrib:b*todayVals[i]}));
     contributions.sort((a,b)=>Math.abs(b.contrib)-Math.abs(a.contrib));
     let dirHit=0;
@@ -420,7 +420,7 @@ function App(){
     }
     const dirAcc=dirHit/yArr.length;
     return {predReturn, predKospi, r2:ols.r2, contributions, dirAcc};
-  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,latest]);
+  },[retKrw,retWti,retGold,retBrent,retSp500,retKospi,chgKrw,chgWti,chgGold,chgBrent,chgSp500,latest]);
 
   // scatter data (z-score normalized returns)
   const scatterData=useMemo(()=>{
@@ -541,7 +541,7 @@ function App(){
             ))}
           </div>
           <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.4}}>
-            * 당일 환율 + 전일 미국시장(S&P500·WTI·Gold·Brent) 시차 반영 OLS. 장 개시 전 예측용 참고 지표입니다.
+            * 당일 환율 + 최신 미국시장(S&P500·WTI·Gold·Brent) 실시간 반영 OLS. 5분마다 갱신. 참고용 지표입니다.
           </div>
         </div>
       )}
