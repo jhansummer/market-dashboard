@@ -106,6 +106,13 @@ function normalize(arr){
   return arr.map(v=>(v-f)/f*100);
 }
 
+function zScore(arr){
+  if(arr.length<2)return arr.map(()=>0);
+  const mean=arr.reduce((a,b)=>a+b,0)/arr.length;
+  const std=Math.sqrt(arr.reduce((a,v)=>a+(v-mean)**2,0)/arr.length)||1;
+  return arr.map(v=>(v-mean)/std);
+}
+
 function corrColor(r){
   const a=Math.abs(r);
   if(a>0.7)return r>0?C.emerald:C.dn;
@@ -233,9 +240,9 @@ function App(){
   const corrWK=pearson(retWti,retKospi);
   const corrKW=pearson(retKrw,retWti);
 
-  const normKrw=normalize(krwArr);
-  const normWti=normalize(wtiArr);
-  const normKospi=normalize(kospiArr);
+  const normKrw=zScore(krwArr);
+  const normWti=zScore(wtiArr);
+  const normKospi=zScore(kospiArr);
   const normData=dates.map((d,i)=>({date:d.slice(5),krw:normKrw[i],wti:normWti[i],kospi:normKospi[i]}));
 
   const latest=data[data.length-1];
@@ -322,14 +329,15 @@ function App(){
 
       {/* Normalized Returns Chart */}
       <div className="card" style={{marginBottom:12}}>
-        <div style={{fontSize:13,fontWeight:700,marginBottom:12}}>Normalized Returns (%)</div>
+        <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>Z-Score Normalized Trend</div>
+        <div style={{fontSize:11,color:C.muted,marginBottom:12}}>각 지표를 표준편차 단위로 정규화하여 방향성 비교</div>
         <ResponsiveContainer width="100%" height={280}>
           <AreaChart data={normData} margin={{top:5,right:10,left:0,bottom:0}}>
             <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
             <XAxis dataKey="date" tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} />
-            <YAxis tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} tickFormatter={v=>v.toFixed(0)+'%'} />
+            <YAxis tick={{fill:C.muted,fontSize:10}} tickLine={false} axisLine={{stroke:C.border}} tickFormatter={v=>v.toFixed(1)+'σ'} />
             <ReferenceLine y={0} stroke={C.muted} strokeDasharray="4 4" />
-            <Tooltip contentStyle={ttStyle} formatter={(v,n)=>[v.toFixed(2)+'%',n==='krw'?'USD/KRW':n==='wti'?'WTI':'KOSPI']} />
+            <Tooltip contentStyle={ttStyle} formatter={(v,n)=>[v.toFixed(2)+'σ',n==='krw'?'USD/KRW':n==='wti'?'WTI':'KOSPI']} />
             <Area type="monotone" dataKey="krw" stroke={C.amber} fill={C.amber} fillOpacity={0.08} strokeWidth={2} name="krw" dot={false} />
             <Area type="monotone" dataKey="wti" stroke={C.emerald} fill={C.emerald} fillOpacity={0.08} strokeWidth={2} name="wti" dot={false} />
             <Area type="monotone" dataKey="kospi" stroke={C.blue} fill={C.blue} fillOpacity={0.08} strokeWidth={2} name="kospi" dot={false} />
