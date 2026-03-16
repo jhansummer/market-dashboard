@@ -303,7 +303,33 @@ function App(){
   const [news,setNews]=useState([]);
   const [dataSource,setDataSource]=useState('fallback'); // 'live'|'partial'|'fallback'
   const [fetchStatus,setFetchStatus]=useState({});
+  const [trades,setTrades]=useState(()=>{try{return JSON.parse(localStorage.getItem('paperTrades')||'[]');}catch{return [];}});
   const timerRef=useRef(null);
+
+  useEffect(()=>{localStorage.setItem('paperTrades',JSON.stringify(trades));},[trades]);
+
+  const openTrade=useCallback((type)=>{
+    if(trades.some(t=>t.status==='open')) return; // one position at a time
+    setTrades(prev=>[...prev,{
+      id:Date.now(), type,
+      entryKospi:latest.kospi, entryWti:latest.wti,
+      entrySignalZ:prediction?.signalZ??null,
+      entryTime:new Date().toISOString(),
+      exitKospi:null, exitTime:null, status:'open', pnlPct:null,
+    }]);
+  },[trades,latest,prediction]);
+
+  const closeTrade=useCallback(()=>{
+    setTrades(prev=>prev.map(t=>{
+      if(t.status!=='open') return t;
+      const pnlPct=t.type==='long'
+        ?(latest.kospi-t.entryKospi)/t.entryKospi*100
+        :(t.entryKospi-latest.kospi)/t.entryKospi*100;
+      return{...t,exitKospi:latest.kospi,exitTime:new Date().toISOString(),status:'closed',pnlPct};
+    }));
+  },[latest]);
+
+  const deleteTrade=useCallback((id)=>{setTrades(prev=>prev.filter(t=>t.id!==id));},[]);
 
   const fetchAll=useCallback(async()=>{
     setStatus('Fetching...');
@@ -872,6 +898,123 @@ function App(){
             <div style={{fontSize:10,color:C.muted,marginTop:8,lineHeight:1.5}}>
               β={betaWK.toFixed(3)} · WTI 1% 상승 시 KOSPI {betaWK.toFixed(2)}% 변화 (과거 {n}일 추정) · 5분마다 갱신 · 참고용
             </div>
+          </div>
+        );
+      })()}
+
+      {/* Paper Trading */}
+      {(()=>{
+        const openPos=trades.find(t=>t.status==='open');
+        const closed=trades.filter(t=>t.status==='closed');
+        const wins=closed.filter(t=>t.pnlPct>0).length;
+        const totalPnl=closed.reduce((s,t)=>s+t.pnlPct,0);
+        const fmtTime=iso=>{
+          const d=new Date(iso);
+          return d.toLocaleString('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+        };
+        const livePnl=openPos
+          ?(openPos.type==='long'
+            ?(latest.kospi-openPos.entryKospi)/openPos.entryKospi*100
+            :(openPos.entryKospi-latest.kospi)/openPos.entryKospi*100)
+          :null;
+        return(
+          <div className="card" style={{marginBottom:12,borderTop:'3px solid #8b5cf6'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700}}>페이퍼 트레이딩</div>
+              {closed.length>0&&(
+                <div style={{display:'flex',gap:16,fontSize:11}}>
+                  <span style={{color:C.muted}}>{closed.length}회</span>
+                  <span style={{color:C.muted}}>승률 <b style={{color:wins/closed.length>=0.5?C.emerald:C.dn}}>{(wins/closed.length*100).toFixed(0)}%</b></span>
+                  <span style={{color:C.muted}}>누적 <b style={{color:totalPnl>=0?C.emerald:C.dn}}>{totalPnl>=0?'+':''}{totalPnl.toFixed(2)}%</b></span>
+                </div>
+              )}
+            </div>
+
+            {/* Open position or entry buttons */}
+            {openPos?(
+              <div style={{background:C.bg,borderRadius:8,padding:'12px 14px',marginBottom:12,
+                border:`1px solid ${openPos.type==='long'?C.emerald+'50':C.dn+'50'}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:4}}>
+                      📌 {openPos.type==='long'?'KODEX KOSPI (069500)':'KODEX 인버스 (114800)'} 보유 중
+                    </div>
+                    <div style={{display:'flex',gap:20,fontSize:12}}>
+                      <span style={{color:C.muted}}>진입 <b style={{color:C.text}}>{openPos.entryKospi.toFixed(1)}</b></span>
+                      <span style={{color:C.muted}}>현재 <b style={{color:C.text}}>{latest.kospi.toFixed(1)}</b></span>
+                      <span style={{color:C.muted}}>진입신호 <b style={{color:'#a78bfa'}}>{openPos.entrySignalZ!=null?openPos.entrySignalZ.toFixed(2)+'σ':'—'}</b></span>
+                    </div>
+                    <div style={{marginTop:6,fontSize:11,color:C.muted}}>{fmtTime(openPos.entryTime)} 진입</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontSize:22,fontWeight:800,color:livePnl>=0?C.emerald:C.dn}}>
+                      {livePnl>=0?'+':''}{livePnl?.toFixed(2)}%
+                    </div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:2}}>
+                      {((livePnl/100)*openPos.entryKospi)>=0?'+':''}{((livePnl/100)*openPos.entryKospi).toFixed(0)}pt
+                    </div>
+                    <button onClick={closeTrade} style={{marginTop:8,background:C.dn,color:'#fff',padding:'5px 14px',fontSize:11}}>
+                      청산
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ):(
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:12}}>
+                <button onClick={()=>openTrade('long')}
+                  style={{background:'#052e16',color:C.emerald,border:`1px solid ${C.emerald}50`,
+                    borderRadius:8,padding:'10px',fontSize:12,fontWeight:700}}>
+                  ▲ KOSPI 매수<br/>
+                  <span style={{fontSize:10,fontWeight:400,color:C.muted}}>KODEX KOSPI 069500</span>
+                </button>
+                <button onClick={()=>openTrade('short')}
+                  style={{background:'#2d0a0a',color:C.dn,border:`1px solid ${C.dn}50`,
+                    borderRadius:8,padding:'10px',fontSize:12,fontWeight:700}}>
+                  ▼ 인버스 매수<br/>
+                  <span style={{fontSize:10,fontWeight:400,color:C.muted}}>KODEX 인버스 114800</span>
+                </button>
+              </div>
+            )}
+
+            {/* Trade log */}
+            {closed.length>0&&(
+              <div style={{overflowX:'auto'}}>
+                <table>
+                  <thead><tr>
+                    <th>시간</th><th>포지션</th><th>진입</th><th>청산</th><th>수익률</th><th>신호(σ)</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    {[...closed].reverse().map(t=>(
+                      <tr key={t.id}>
+                        <td style={{color:C.muted,fontSize:10}}>{fmtTime(t.entryTime)}</td>
+                        <td style={{color:t.type==='long'?C.emerald:C.dn,fontWeight:600}}>
+                          {t.type==='long'?'▲ 롱':'▼ 숏'}
+                        </td>
+                        <td>{t.entryKospi.toFixed(1)}</td>
+                        <td>{t.exitKospi?.toFixed(1)}</td>
+                        <td className={t.pnlPct>=0?'up':'dn'} style={{fontWeight:700}}>
+                          {t.pnlPct>=0?'+':''}{t.pnlPct?.toFixed(2)}%
+                        </td>
+                        <td style={{color:'#a78bfa'}}>
+                          {t.entrySignalZ!=null?t.entrySignalZ.toFixed(2):'—'}
+                        </td>
+                        <td>
+                          <button onClick={()=>deleteTrade(t.id)}
+                            style={{background:'transparent',color:C.muted,padding:'2px 6px',fontSize:10}}>
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {trades.length===0&&(
+              <div style={{fontSize:11,color:C.muted,textAlign:'center',padding:'8px 0'}}>
+                거래 내역 없음 — 위 버튼으로 진입 기록
+              </div>
+            )}
           </div>
         );
       })()}
