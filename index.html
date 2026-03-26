@@ -335,20 +335,39 @@ function App(){
     setStatus('Fetching...');
     fetchNewsData().then(items=>{if(items.length) setNews(items);});
     try{
-      const [krwRes,wtiRes,kospiRes,goldRes,brentRes,sp500Res]=await Promise.allSettled([
-        fetchYahoo('KRW%3DX'),
-        fetchYahoo('CL%3DF'),
-        fetchYahoo('%5EKS11'),
-        fetchYahoo('XAUUSD%3DX'),
-        fetchYahoo('BZ%3DF'),
-        fetchYahoo('%5EGSPC'),
-      ]);
-      const krwData  =krwRes.status==='fulfilled'?krwRes.value:null;
-      const wtiData  =wtiRes.status==='fulfilled'?wtiRes.value:null;
-      const kospiData=kospiRes.status==='fulfilled'?kospiRes.value:null;
-      const goldData =goldRes.status==='fulfilled'?goldRes.value:null;
-      const brentData=brentRes.status==='fulfilled'?brentRes.value:null;
-      const sp500Data=sp500Res.status==='fulfilled'?sp500Res.value:null;
+      // Try pre-fetched data.json first (GitHub Actions updates every ~5 min)
+      let krwData=null,wtiData=null,kospiData=null,goldData=null,brentData=null,sp500Data=null;
+      let fetchMode='live';
+      try{
+        const cr=await fetch('./data.json?_='+Date.now());
+        if(cr.ok){
+          const cd=await cr.json();
+          const ageMin=(Date.now()-new Date(cd.updatedAt))/60000;
+          if(ageMin<15&&cd.krw&&cd.wti&&cd.kospi){
+            krwData=cd.krw;wtiData=cd.wti;kospiData=cd.kospi;
+            goldData=cd.gold;brentData=cd.brent;sp500Data=cd.sp500;
+            fetchMode='cached';
+          }
+        }
+      }catch{}
+      // Fall back to CORS proxies if cache missing or stale
+      if(!krwData||!wtiData||!kospiData){
+        const [krwRes,wtiRes,kospiRes,goldRes,brentRes,sp500Res]=await Promise.allSettled([
+          fetchYahoo('KRW%3DX'),
+          fetchYahoo('CL%3DF'),
+          fetchYahoo('%5EKS11'),
+          fetchYahoo('XAUUSD%3DX'),
+          fetchYahoo('BZ%3DF'),
+          fetchYahoo('%5EGSPC'),
+        ]);
+        krwData  =krwRes.status==='fulfilled'?krwRes.value:null;
+        wtiData  =wtiRes.status==='fulfilled'?wtiRes.value:null;
+        kospiData=kospiRes.status==='fulfilled'?kospiRes.value:null;
+        goldData =goldRes.status==='fulfilled'?goldRes.value:null;
+        brentData=brentRes.status==='fulfilled'?brentRes.value:null;
+        sp500Data=sp500Res.status==='fulfilled'?sp500Res.value:null;
+        fetchMode='live';
+      }
       // Track per-symbol fetch result: 'ok'|'noHistory'|'fail'
       const fs={
         'USD/KRW': krwData?.history?.length  ? 'ok' : krwData  ? 'noHistory' : 'fail',
@@ -412,7 +431,7 @@ function App(){
           if(sp500Data?.current) last.sp500=sp500Data.current;
           setData(merged);
           setDataSource('live');
-          setStatus('Live data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
+          setStatus((fetchMode==='cached'?'Cached':'Live')+' data · '+new Date().toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'}));
           setCountdown(300);
           return;
         }
